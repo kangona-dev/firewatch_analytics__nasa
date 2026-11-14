@@ -43,9 +43,9 @@ export function monthlyMedians(agg, series) {
 
 const anomScore = (v, med) => Math.log2((v + 1) / (med + 1));
 
-export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSelect }) {
+export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSelect, from = agg.ym0, to = agg.ym1 }) {
   el.innerHTML = '';
-  const y0 = ymYear(agg.ym0), y1 = ymYear(agg.ym1);
+  const y0 = ymYear(from), y1 = ymYear(to);
   const years = d3.range(y0, y1 + 1);
   const W = el.clientWidth || 800;
   const left = 44, top = 22, right = 70;
@@ -56,7 +56,7 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
 
   let max = 1;
   const pos = [];
-  for (let k = 0; k < agg.harm.length; k++) {
+  for (let k = from - agg.ym0; k <= to - agg.ym0; k++) {
     const v = valueAt(agg, series, k) ?? 0;
     max = Math.max(max, v);
     if (v >= 0.5) pos.push(v);
@@ -71,7 +71,7 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
     .attr('role', 'img').attr('aria-label', 'Calendar heatmap of monthly fire detections, years by months');
 
   svg.append('g').selectAll('text').data(MONTHS).join('text')
-    .attr('x', (_, i) => left + i * cw + cw / 2).attr('y', top - 7).attr('text-anchor', 'middle').attr('class', 'axis-l').text((m) => m);
+    .attr('x', (_, i) => left + i * cw + cw / 2).attr('y', top - 7).attr('text-anchor', 'middle').attr('class', 'axis-l').text((m) => (cw < 30 ? m[0] : m));
   svg.append('g').selectAll('text').data(years).join('text')
     .attr('x', left - 6).attr('y', (_, i) => top + i * ch + ch / 2 + 4).attr('text-anchor', 'end').attr('class', 'axis-l').text((y) => y);
   svg.append('text').attr('x', left + 12 * cw + 8).attr('y', top - 7).attr('class', 'axis-l').text('Year total');
@@ -79,9 +79,10 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
   const cells = [];
   for (const y of years) for (let m = 0; m < 12; m++) {
     const ym = (y - 2000) * 12 + m, k = ym - agg.ym0;
-    const inRange = ym >= agg.ym0 && ym <= agg.ym1;
+    const inData = ym >= agg.ym0 && ym <= agg.ym1;
+    const inRange = inData && ym >= from && ym <= to;
     const v = inRange ? valueAt(agg, series, k) : null;
-    cells.push({ y, m, ym, k, v, inRange });
+    cells.push({ y, m, ym, k, v, inRange, inData });
   }
 
   const color = (d) => {
@@ -97,7 +98,8 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
     .attr('class', (d) => `cal-cell${d.ym === selected ? ' sel' : ''}${d.inRange && agg.partialLast && d.ym === agg.ym1 ? ' partial' : ''}`)
     .style('cursor', (d) => (d.v != null ? 'pointer' : 'default'))
     .on('mousemove', (evt, d) => {
-      if (!d.inRange) return showTip(evt, `<b>${ymLabel(d.ym)}</b><br>No satellite record (FIRMS MODIS starts Nov 2000)`);
+      if (!d.inData) return showTip(evt, `<b>${ymLabel(d.ym)}</b><br>${d.ym < agg.ym0 ? 'No satellite record (FIRMS MODIS starts Nov 2000)' : 'Not happened yet'}`);
+      if (!d.inRange) return showTip(evt, `<b>${ymLabel(d.ym)}</b><br>Outside the selected date range`);
       if (d.v == null) return showTip(evt, `<b>${ymLabel(d.ym)}</b><br>This sensor was not operating yet`);
       const med = meds[d.m].median;
       const ratio = (d.v + 1) / (med + 1);
@@ -120,7 +122,7 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
     let t = 0, any = false;
     for (let m = 0; m < 12; m++) {
       const ym = (y - 2000) * 12 + m;
-      if (ym < agg.ym0 || ym > agg.ym1) continue;
+      if (ym < from || ym > to) continue;
       const v = valueAt(agg, series, ym - agg.ym0);
       if (v != null) { t += v; any = true; }
     }
@@ -132,7 +134,7 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
     .attr('x', left + 12 * cw + 6).attr('y', (_, i) => top + i * ch + 3)
     .attr('width', (t) => (t ? Math.max(1, (right - 10) * (t / tmax)) : 0)).attr('height', ch - 6)
     .attr('fill', css('--accent')).attr('opacity', 0.75)
-    .on('mousemove', (evt, t) => t != null && showTip(evt, `<b>${years[totals.indexOf(t)]}</b><br>${fmtN(t)} detections`))
+    .on('mousemove', (evt, t) => t != null && showTip(evt, `<b>${years[totals.indexOf(t)]}</b><br>${fmtN(t)} detections in range`))
     .on('mouseleave', hideTip);
 
   drawLegend(legendEl, mode, lo, max);
@@ -188,7 +190,7 @@ export function drawAnomaly(el, titleEl, agg, { series, selected }) {
     .attr('stroke', css('--fg')).attr('stroke-dasharray', '4 3').attr('opacity', 0.7);
   svg.append('text').attr('x', W - mg.r).attr('y', y(med) - 4).attr('text-anchor', 'end').attr('class', 'axis-l').text(`median ${fmtN(med)}`);
   svg.append('text').attr('x', mg.l).attr('y', 16).attr('class', 'callout')
-    .text(`${fmtN(v)} detections — ${ratio >= 1 ? ratio.toFixed(1) + '×' : Math.round(ratio * 100) + '% of'} typical (${word} normal)`);
+    .text(`${fmtN(v)} detections — ${ratio >= 1 ? ratio.toFixed(1) + '×' : Math.round(ratio * 100) + '% of'} typical${W < 500 ? '' : ` (${word} normal)`}`);
 }
 
 /** Seasonal profile: min–max band, median, and the selected year. */
@@ -228,15 +230,15 @@ export function drawSeason(el, agg, { series, selected }) {
   lg.append('text').attr('x', 148).attr('y', 4).text('min–max');
 }
 
-/** Annual totals bars. */
-export function drawAnnual(el, agg, { series, selected, onSelect }) {
+/** Annual totals bars (within [from, to]), optional Theil–Sen trend line. */
+export function drawAnnual(el, agg, { series, selected, onSelect, from = agg.ym0, to = agg.ym1, trend = null }) {
   el.innerHTML = '';
-  const years = d3.range(ymYear(agg.ym0), ymYear(agg.ym1) + 1);
+  const years = d3.range(ymYear(from), ymYear(to) + 1);
   const data = years.map((yy) => {
     let t = 0, n = 0;
     for (let m = 0; m < 12; m++) {
       const ym = (yy - 2000) * 12 + m;
-      if (ym < agg.ym0 || ym > agg.ym1) continue;
+      if (ym < from || ym > to) continue;
       const v = valueAt(agg, series, ym - agg.ym0);
       if (v != null) { t += v; n++; }
     }
@@ -247,7 +249,7 @@ export function drawAnnual(el, agg, { series, selected, onSelect }) {
   const x = d3.scaleBand().domain(years).range([mg.l, W - mg.r]).padding(0.15);
   const y = d3.scaleLinear().domain([0, d3.max(data, (d) => d.t) || 1]).nice().range([H - mg.b, mg.t]);
   svg.append('g').attr('transform', `translate(0,${H - mg.b})`).attr('class', 'axis')
-    .call(d3.axisBottom(x).tickValues(years.filter((yy) => yy % 2 === 0)).tickSizeOuter(0));
+    .call(d3.axisBottom(x).tickValues(years.filter((yy) => yy % (W < 600 ? 5 : years.length > 12 ? 2 : 1) === 0)).tickSizeOuter(0));
   svg.append('g').attr('transform', `translate(${mg.l},0)`).attr('class', 'axis').call(d3.axisLeft(y).ticks(4, '~s'));
   const ySel = ymYear(selected);
   svg.append('g').selectAll('rect').data(data.filter((d) => d.t != null)).join('rect')
@@ -256,5 +258,11 @@ export function drawAnnual(el, agg, { series, selected, onSelect }) {
     .attr('opacity', (d) => (d.partial ? 0.5 : 1)).style('cursor', 'pointer')
     .on('mousemove', (evt, d) => showTip(evt, `<b>${d.y}</b>${d.partial ? ' (partial year)' : ''}<br>${fmtN(d.t)} detections`))
     .on('mouseleave', hideTip)
-    .on('click', (_, d) => onSelect(Math.min(agg.ym1, (d.y - 2000) * 12 + ymMonth(selected))));
+    .on('click', (_, d) => onSelect(Math.min(to, Math.max(from, (d.y - 2000) * 12 + ymMonth(selected)))));
+  if (trend) {
+    const ty = (yy) => trend.intercept + trend.slope * yy;
+    const xc = (yy) => x(yy) + x.bandwidth() / 2;
+    svg.append('line').attr('x1', xc(trend.y0)).attr('x2', xc(trend.y1)).attr('y1', y(Math.max(0, ty(trend.y0)))).attr('y2', y(Math.max(0, ty(trend.y1))))
+      .attr('stroke', css('--fg')).attr('stroke-width', 2).attr('stroke-dasharray', '6 4').attr('opacity', 0.8);
+  }
 }

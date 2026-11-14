@@ -104,7 +104,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .seg button:last-child { border-right: 0; }
 .seg button.on { background: var(--accent); color: var(--accent-ink); }
 
-.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
 .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); }
 .stat .k { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .stat .v { font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -162,7 +162,91 @@ tr.best td { font-weight: 700; background: color-mix(in srgb, var(--accent) 10%,
   .map-wrap { min-height: 360px; order: -1; }
   .presets { flex-direction: row; flex-wrap: wrap; }
   .stats { grid-template-columns: repeat(2, 1fr); }
+  .ol-grid { grid-template-columns: 1fr 1fr; }
+  .range-bar { gap: 8px; }
   .grid2 { grid-template-columns: 1fr; }
   .card.wide { grid-column: auto; }
   .view { padding: 12px 16px 24px; }
 }
+
+/* ---- coordinate input toggle ---- */
+.seg.small { margin-bottom: 10px; width: 100%; display: flex; }
+.seg.small button { flex: 1; font-size: 0.8rem; padding: 5px 6px; }
+.bbox-form .span2 { grid-column: span 2; }
+
+/* ---- CSV menu ---- */
+.dl { position: relative; }
+.dl-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 1500; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 240px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.15);
+  display: flex; flex-direction: column;
+}
+.dl-menu[hidden] { display: none; }
+.dl-menu button { border: 0; border-radius: 6px; padding: 8px 10px; }
+.dl-menu button:hover { background: var(--cell-zero); }
+
+/* ---- date range bar ---- */
+.range-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+}
+.range-label { font-weight: 600; font-size: 0.9rem; }
+.range-bar label { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+.range-bar select {
+  font: inherit; font-size: 0.85rem; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--fg);
+}
+.range-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.range-quick button { font-size: 0.8rem; padding: 4px 9px; }
+.range-note { margin: 0; flex-basis: 100%; }
+
+/* ---- card header with PNG button ---- */
+.card-h { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.card-h .png { margin-left: auto; font-size: 0.75rem; padding: 3px 8px; color: var(--muted); }
+.card-h .hint { margin: 0; }
+
+/* ---- season outlook ---- */
+.outlook-card { margin-bottom: 14px; }
+.ol-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.ol-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; border-top-width: 4px; font-size: 0.85rem; }
+.ol-card.ol-high { border-top-color: #b4235a; }
+.ol-card.ol-moderate { border-top-color: var(--accent); }
+.ol-card.ol-low { border-top-color: var(--bar-muted); }
+.ol-when { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+.ol-tag { font-size: 0.7rem; font-weight: 600; background: var(--accent); color: var(--accent-ink); border-radius: 4px; padding: 1px 5px; vertical-align: 2px; }
+.ol-now { margin-bottom: 6px; line-height: 1.4; }
+.ol-chip { display: inline-block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.ol-high .ol-chip { color: #b4235a; }
+.ol-moderate .ol-chip { color: var(--accent); }
+.ol-low .ol-chip { color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  .ol-card.ol-high { border-top-color: #f06595; }
+  .ol-high .ol-chip { color: #f06595; }
+}
+.ol-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-top: 1px dashed var(--line); }
+.ol-row span { color: var(--muted); }
+.ol-row b { font-variant-numeric: tabular-nums; text-align: right; }
+.ol-foot { font-size: 0.85rem; margin: 10px 0 0; }
+.muted { color: var(--muted); }
+
+@media (max-width: 900px) {
+  .ol-grid { grid-template-columns: 1fr 1fr; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .ol-grid { grid-template-columns: 1fr; }
+}
+
+.bbox-form[hidden] { display: none; }
+
+/* ---- regional factor map (Method page) ---- */
+.factor-card { margin-top: 16px; }
+.factor-wrap { position: relative; }
+#factor-map { height: 460px; border-radius: 8px; border: 1px solid var(--line); }
+.factor-legend {
+  position: absolute; right: 10px; bottom: 24px; z-index: 500; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px;
+}
+.factor-tt { font-size: 0.8rem; line-height: 1.4; }
+@media (max-width: 600px) { #factor-map { height: 340px; } }
+#factor-map .leaflet-tile-pane { filter: grayscale(1) opacity(0.55); }

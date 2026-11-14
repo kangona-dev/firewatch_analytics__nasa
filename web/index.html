@@ -24,9 +24,19 @@
     <section class="explore">
       <aside class="panel select-panel">
         <h2>1 · Choose an area</h2>
-        <p class="hint">Draw a rectangle or polygon on the map, pick a preset, or type a bounding box.</p>
+        <p class="hint">Draw a rectangle, polygon or circle on the map, pick a preset, or type coordinates.</p>
         <div class="presets" id="presets"></div>
-        <form id="bbox-form" class="bbox-form">
+        <div class="seg small" id="input-seg" role="group" aria-label="Coordinate input">
+          <button data-v="point" class="on" type="button">Point + radius</button>
+          <button data-v="box" type="button">Bounding box</button>
+        </div>
+        <form id="point-form" class="bbox-form">
+          <label>Latitude <input name="lat" type="number" step="0.001" min="-45" max="-9" placeholder="-33.70" required></label>
+          <label>Longitude <input name="lon" type="number" step="0.001" min="112" max="155" placeholder="150.30" required></label>
+          <label class="span2">Radius (km) <input name="r" type="number" step="1" min="5" max="1000" value="50" required></label>
+          <button type="submit">Apply point</button>
+        </form>
+        <form id="bbox-form" class="bbox-form" hidden>
           <label>Lat min <input name="s" type="number" step="0.1" min="-45" max="-9" required></label>
           <label>Lat max <input name="n" type="number" step="0.1" min="-45" max="-9" required></label>
           <label>Lon min <input name="w" type="number" step="0.1" min="112" max="155" required></label>
@@ -58,15 +68,39 @@
             <button data-v="count" class="on">Detections</button>
             <button data-v="anom">Anomaly vs typical</button>
           </div>
-          <button id="csv-btn" class="primary">Download CSV</button>
+          <div class="dl">
+            <button id="csv-btn" class="primary">Download CSV ▾</button>
+            <div class="dl-menu" id="csv-menu" hidden>
+              <button data-csv="monthly">Monthly series for this area</button>
+              <button data-csv="cells">Per-cell totals (0.1° grid)</button>
+            </div>
+          </div>
         </div>
+      </div>
+
+      <div class="range-bar" id="range-bar">
+        <span class="range-label">Date range</span>
+        <label>From <select id="from-m"></select><select id="from-y"></select></label>
+        <label>To <select id="to-m"></select><select id="to-y"></select></label>
+        <div class="range-quick" id="range-quick">
+          <button data-q="all">All years</button>
+          <button data-q="10y">Last 10 years</button>
+          <button data-q="modis">MODIS era (2000–2011)</button>
+          <button data-q="viirs">VIIRS era (2012–)</button>
+        </div>
+        <span class="hint range-note">Stats, calendar, annual totals and CSV use this range. “Typical” always uses the full record.</span>
       </div>
 
       <div class="stats" id="stats"></div>
 
+      <div class="card outlook-card">
+        <h3>Season outlook <span class="hint">· what history says about the coming months — based on the record, not a weather forecast</span></h3>
+        <div id="outlook"></div>
+      </div>
+
       <div class="grid2">
         <div class="card wide">
-          <h3>Burning-activity calendar <span class="hint" id="cal-hint"></span></h3>
+          <h3 class="card-h">Burning-activity calendar <span class="hint" id="cal-hint"></span><button class="png" data-png="calendar" title="Download as PNG">PNG ↓</button></h3>
           <div id="calendar"></div>
           <div id="cal-legend" class="legend"></div>
         </div>
@@ -74,17 +108,17 @@
 
       <div class="grid2">
         <div class="card">
-          <h3 id="anom-title">This month vs typical</h3>
+          <h3 class="card-h"><span id="anom-title">This month vs typical</span><button class="png" data-png="anomaly" title="Download as PNG">PNG ↓</button></h3>
           <div id="anomaly"></div>
         </div>
         <div class="card">
-          <h3>Seasonal profile</h3>
+          <h3 class="card-h">Seasonal profile<button class="png" data-png="season" title="Download as PNG">PNG ↓</button></h3>
           <div id="season"></div>
         </div>
       </div>
       <div class="grid2">
         <div class="card wide">
-          <h3>Annual totals <span class="hint">· click a year to jump to it</span></h3>
+          <h3 class="card-h">Annual totals <span class="hint">· click a year to jump to it · dashed line = Sen's slope trend</span><button class="png" data-png="annual" title="Download as PNG">PNG ↓</button></h3>
           <div id="annual"></div>
         </div>
       </div>

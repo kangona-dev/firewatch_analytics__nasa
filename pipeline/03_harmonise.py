@@ -135,6 +135,18 @@ def main():
     kns_nat, kns_block, kns_tile = hier_factors(ov_ns, "snpp", "n20")
     print(f"national MODIS->S-NPP k = {kms_nat:.3f}, NOAA-20->S-NPP k = {kns_nat:.3f}")
 
+    # per-tile factor map for the web (Method page): k, overlap counts, data weight (1 = own data, 0 = fully regional)
+    t = ov_ms.groupby("tile")[["modis", "snpp"]].sum()
+    factors = [[int(a), int(b), round(kms_tile[tile], 3), int(r.modis), int(r.snpp), round(r.modis / (r.modis + LAMBDA), 3)]
+               for tile, r in t.iterrows() for a, b in [map(int, tile.split("_"))] if tile in kms_tile]
+    os.makedirs(WEB, exist_ok=True)
+    with open(os.path.join(WEB, "factors.json"), "w") as f:
+        json.dump({"k_national": round(kms_nat, 4), "lambda": LAMBDA,
+                   "cols": ["ty", "tx", "k", "modis_overlap", "snpp_overlap", "weight"], "tiles": factors}, f, separators=(",", ":"))
+    ks = np.array([r[2] for r in factors]); ws = np.array([r[5] for r in factors])
+    print(f"factors.json: {len(factors)} tiles, k range {ks.min():.2f}-{ks.max():.2f}, "
+          f"p10-p90 {np.percentile(ks, 10):.2f}-{np.percentile(ks, 90):.2f}, tiles with weight>0.5: {(ws > 0.5).sum()}")
+
     g["k_ms"] = lookup(g.tile, g.block, kms_tile, kms_block, kms_nat)
     g["k_ns"] = lookup(g.tile, g.block, kns_tile, kns_block, kns_nat)
 

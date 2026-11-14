@@ -3,8 +3,10 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import * as d3 from 'd3';
 import './style.css';
-import { aggregate, loadIndex, loadOverview, toCSV, ymLabel, ymYear, ymMonth, MONTHS } from './data.js';
+import { aggregate, loadIndex, loadOverview, toCSV, cellsCSV, ymLabel, ymYear, ymMonth, MONTHS } from './data.js';
 import { drawCalendar, drawAnomaly, drawSeason, drawAnnual, monthlyMedians, valueAt, fmtN } from './charts.js';
+import { completeYears, trend, outlook, level } from './analytics.js';
+import { downloadPNG } from './export.js';
 import { renderMethod, renderAbout } from './pages.js';
 
 window.L = L;
@@ -19,8 +21,16 @@ const PRESETS = [
   { id: 'tasmania', name: 'Tasmania', bbox: { s: -43.7, n: -40.6, w: 144.5, e: 148.5 } },
   { id: 'australia', name: 'All of Australia', bbox: { s: -44, n: -9, w: 112, e: 154 } },
 ];
+const SERIES_NAME = {
+  harm: 'Harmonised VIIRS-equivalent detections', modis: 'Raw MODIS detections',
+  snpp: 'Raw VIIRS S-NPP detections', n20: 'Raw VIIRS NOAA-20 detections',
+};
+const SHAPE_STYLE = { color: '#e8590c', weight: 2, fillOpacity: 0.05 };
 
-const state = { area: null, label: '', agg: null, series: 'harm', mode: 'count', selected: null, index: null };
+const state = {
+  area: null, label: '', presetId: null, agg: null, series: 'harm', mode: 'count', selected: null,
+  from: null, to: null, pendingRange: null,
+};
 
 // ---------------------------------------------------------------- map
 const map = L.map('map', { zoomSnap: 0.25, minZoom: 3, maxBounds: [[-50, 100], [0, 170]] }).fitBounds([[-44, 112], [-10, 154]]);
@@ -67,15 +77,33 @@ const drawn = new L.FeatureGroup().addTo(map);
 map.addControl(new L.Control.Draw({
   position: 'topleft',
   draw: {
-    polyline: false, circle: false, marker: false, circlemarker: false,
+    polyline: false, marker: false, circlemarker: false,
     // showArea: false — leaflet-draw 1.0.4's readableArea() assigns an undeclared variable and throws in strict-mode bundles
-    rectangle: { shapeOptions: { color: '#e8590c', weight: 2 }, showArea: false },
-    polygon: { shapeOptions: { color: '#e8590c', weight: 2 }, allowIntersection: false },
+    rectangle: { shapeOptions: SHAPE_STYLE, showArea: false },
+    polygon: { shapeOptions: SHAPE_STYLE, allowIntersection: false },
+    circle: { shapeOptions: SHAPE_STYLE, metric: true },
   },
   edit: { featureGroup: drawn, edit: false, remove: false },
 }));
 
+/** Circle as a polygon (good enough at these scales). */
+function circleArea(lat, lon, rKm) {
+  const poly = d3.range(64).map((i) => {
+    const t = (i / 64) * 2 * Math.PI;
+    return [lat + (rKm / 110.574) * Math.cos(t), lon + (rKm / (111.32 * Math.cos((lat * Math.PI) / 180))) * Math.sin(t)];
+  });
+  const lats = poly.map((p) => p[0]), lons = poly.map((p) => p[1]);
+  return {
+    bbox: { s: d3.min(lats), n: d3.max(lats), w: d3.min(lons), e: d3.max(lons) },
+    poly, circle: { lat, lon, r: rKm },
+  };
+}
+
 map.on(L.Draw.Event.CREATED, (e) => {
+  if (e.layerType === 'circle') {
+    const c = e.layer.getLatLng(), r = e.layer.getRadius() / 1000;
+    return setArea(circleArea(c.lat, c.lng, r), `Circle, ${Math.round(r)} km around ${c.lat.toFixed(2)}°, ${c.lng.toFixed(2)}°`, null, false);
+  }
   const ll = e.layer.getLatLngs()[0];
   const b = e.layer.getBounds();
   const bbox = { s: b.getSouth(), n: b.getNorth(), w: b.getWest(), e: b.getEast() };
@@ -85,11 +113,13 @@ map.on(L.Draw.Event.CREATED, (e) => {
 
 function showShape(area) {
   drawn.clearLayers();
-  const style = { color: '#e8590c', weight: 2, fillOpacity: 0.05 };
-  const shape = area.poly
-    ? L.polygon(area.poly, style)
-    : L.rectangle([[area.bbox.s, area.bbox.w], [area.bbox.n, area.bbox.e]], style);
+  const shape = area.circle
+    ? L.circle([area.circle.lat, area.circle.lon], { ...SHAPE_STYLE, radius: area.circle.r * 1000 })
+    : area.poly
+      ? L.polygon(area.poly, SHAPE_STYLE)
+      : L.rectangle([[area.bbox.s, area.bbox.w], [area.bbox.n, area.bbox.e]], SHAPE_STYLE);
   drawn.addLayer(shape);
+  if (area.circle) drawn.addLayer(L.circleMarker([area.circle.lat, area.circle.lon], { radius: 3, color: '#e8590c', fillOpacity: 1 }));
   return shape;
 }
 
@@ -103,25 +133,46 @@ for (const p of PRESETS) {
   presetsEl.appendChild(b);
 }
 
-const form = document.getElementById('bbox-form');
-form.onsubmit = (e) => {
+const bboxForm = document.getElementById('bbox-form');
+const pointForm = document.getElementById('point-form');
+document.getElementById('input-seg').addEventListener('click', (e) => {
+  const v = e.target.dataset?.v;
+  if (!v) return;
+  e.currentTarget.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+  pointForm.hidden = v !== 'point';
+  bboxForm.hidden = v !== 'box';
+});
+
+bboxForm.onsubmit = (e) => {
   e.preventDefault();
-  const f = Object.fromEntries(new FormData(form));
+  const f = Object.fromEntries(new FormData(bboxForm));
   const bbox = { s: +f.s, n: +f.n, w: +f.w, e: +f.e };
   if (bbox.s >= bbox.n || bbox.w >= bbox.e) return alert('Min must be smaller than max.');
   setArea({ bbox }, `Box ${bbox.s}°, ${bbox.w}° → ${bbox.n}°, ${bbox.e}°`, null, true);
 };
 
-function fillForm(b) {
-  for (const k of ['s', 'n', 'w', 'e']) form.elements[k].value = b[k].toFixed(2);
+pointForm.onsubmit = (e) => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(pointForm));
+  const lat = +f.lat, lon = +f.lon, r = +f.r;
+  setArea(circleArea(lat, lon, r), `${r} km around ${lat.toFixed(3)}°, ${lon.toFixed(3)}°`, null, true);
+};
+
+function fillForms(area) {
+  const b = area.bbox;
+  for (const k of ['s', 'n', 'w', 'e']) bboxForm.elements[k].value = b[k].toFixed(2);
+  const c = area.circle ?? { lat: (b.s + b.n) / 2, lon: (b.w + b.e) / 2, r: null };
+  pointForm.elements.lat.value = c.lat.toFixed(3);
+  pointForm.elements.lon.value = c.lon.toFixed(3);
+  if (c.r) pointForm.elements.r.value = Math.round(c.r);
 }
 
 function areaKm2(area) {
+  if (area.circle) return Math.PI * area.circle.r ** 2;
   const { s, n, w, e } = area.bbox;
   const R = 6371;
   const box = (Math.PI / 180) * R * R * Math.abs(Math.sin((n * Math.PI) / 180) - Math.sin((s * Math.PI) / 180)) * Math.abs(e - w);
   if (!area.poly) return box;
-  // shoelace on an equal-area-ish projection (fine for display)
   const pts = area.poly.map(([la, lo]) => [lo * Math.cos((la * Math.PI) / 180) * 111.32, la * 110.57]);
   let a = 0;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += (pts[j][0] + pts[i][0]) * (pts[j][1] - pts[i][1]);
@@ -131,33 +182,103 @@ function areaKm2(area) {
 async function setArea(area, label, focusYm, fit, presetId = null) {
   state.area = area;
   state.label = label;
+  state.presetId = presetId;
   const shape = showShape(area);
   if (fit) map.fitBounds(shape.getBounds(), { padding: [20, 20], maxZoom: 9 });
-  fillForm(area.bbox);
+  fillForms(area);
   presetsEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.id === presetId));
   const info = document.getElementById('area-info');
   info.innerHTML = '<span class="spinner"></span> Loading…';
 
-  state.index ??= await loadIndex();
   state.agg = await aggregate(area);
-  const lastComplete = state.agg.partialLast ? state.agg.ym1 - 1 : state.agg.ym1;
-  state.selected = focusYm ?? lastComplete;
-  info.innerHTML = `<b>${label}</b><br>${d3.format(',.0f')(areaKm2(area))} km² · ${state.agg.cells.toLocaleString()} active 0.1° cells`;
-  updateHash(presetId);
+  const { agg } = state;
+  if (state.from == null) { state.from = agg.ym0; state.to = agg.ym1; }
+  if (state.pendingRange) { [state.from, state.to] = state.pendingRange; state.pendingRange = null; }
+  setRange(state.from, state.to, false);
+  const lastComplete = agg.partialLast ? agg.ym1 - 1 : agg.ym1;
+  state.selected = clampSel(focusYm ?? Math.min(lastComplete, state.to));
+  info.innerHTML = `<b>${label}</b><br>${d3.format(',.0f')(areaKm2(area))} km² · ${agg.cells.toLocaleString()} active 0.1° cells`;
+  updateHash();
+  document.getElementById('results').hidden = false; // unhide first so charts measure their real width
   render();
-  document.getElementById('results').hidden = false;
 }
 
-function updateHash(presetId) {
+// ---------------------------------------------------------------- date range
+const sel = (id) => document.getElementById(id);
+const ymOf = (y, m) => (y - 2000) * 12 + m;
+const ymKey = (ym) => `${ymYear(ym)}-${String(ymMonth(ym) + 1).padStart(2, '0')}`;
+const parseYm = (s) => { const [y, m] = s.split('-').map(Number); return ymOf(y, m - 1); };
+
+async function initRangeControls() {
+  const idx = await loadIndex();
+  const years = d3.range(ymYear(idx.ym_first), ymYear(idx.ym_last) + 1);
+  for (const id of ['from-m', 'to-m']) sel(id).innerHTML = MONTHS.map((m, i) => `<option value="${i}">${m}</option>`).join('');
+  for (const id of ['from-y', 'to-y']) sel(id).innerHTML = years.map((y) => `<option>${y}</option>`).join('');
+  const onChange = (which) => () => {
+    let from = ymOf(+sel('from-y').value, +sel('from-m').value);
+    let to = ymOf(+sel('to-y').value, +sel('to-m').value);
+    if (from > to) { if (which === 'from') to = from; else from = to; }
+    setRange(from, to, true);
+  };
+  for (const id of ['from-m', 'from-y']) sel(id).onchange = onChange('from');
+  for (const id of ['to-m', 'to-y']) sel(id).onchange = onChange('to');
+  sel('range-quick').addEventListener('click', (e) => {
+    const q = e.target.dataset?.q;
+    if (!q || !state.agg) return;
+    const { ym0, ym1 } = state.agg;
+    const ranges = {
+      all: [ym0, ym1],
+      '10y': [ymOf(ymYear(ym1) - 10, 0), ym1],
+      modis: [ym0, ymOf(2011, 11)],
+      viirs: [ymOf(2012, 0), ym1],
+    };
+    setRange(...ranges[q], true);
+  });
+}
+
+function setRange(from, to, rerender) {
+  const agg = state.agg;
+  if (agg) { from = Math.max(agg.ym0, Math.min(agg.ym1, from)); to = Math.max(from, Math.min(agg.ym1, to)); }
+  state.from = from; state.to = to;
+  sel('from-m').value = ymMonth(from); sel('from-y').value = ymYear(from);
+  sel('to-m').value = ymMonth(to); sel('to-y').value = ymYear(to);
+  if (agg) {
+    const { ym0, ym1 } = agg;
+    const active = from === ym0 && to === ym1 ? 'all'
+      : from === ymOf(ymYear(ym1) - 10, 0) && to === ym1 ? '10y'
+        : from === ym0 && to === ymOf(2011, 11) ? 'modis'
+          : from === ymOf(2012, 0) && to === ym1 ? 'viirs' : null;
+    sel('range-quick').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.q === active));
+  }
+  if (rerender && agg) {
+    state.selected = clampSel(state.selected);
+    updateHash();
+    render();
+  }
+}
+
+function clampSel(ym) {
+  const agg = state.agg;
+  const lastComplete = agg.partialLast ? agg.ym1 - 1 : agg.ym1;
+  if (ym == null || ym < state.from || ym > state.to) ym = Math.min(state.to, lastComplete);
+  return Math.max(state.from, ym);
+}
+
+function updateHash() {
   const b = state.area.bbox;
   const q = new URLSearchParams();
-  if (presetId) q.set('preset', presetId);
+  if (state.presetId) q.set('preset', state.presetId);
+  else if (state.area.circle) q.set('pt', [state.area.circle.lat, state.area.circle.lon, state.area.circle.r].map((v) => +v.toFixed(3)).join(','));
   else if (state.area.poly) q.set('poly', state.area.poly.map((p) => p.map((v) => v.toFixed(3)).join(':')).join(';'));
   else q.set('bbox', [b.s, b.n, b.w, b.e].map((v) => v.toFixed(3)).join(','));
+  if (state.agg && (state.from !== state.agg.ym0 || state.to !== state.agg.ym1)) {
+    q.set('from', ymKey(state.from));
+    q.set('to', ymKey(state.to));
+  }
   history.replaceState(null, '', `#/?${q}`);
 }
 
-// ---------------------------------------------------------------- render results
+// ---------------------------------------------------------------- results controls
 function segment(id, key) {
   const el = document.getElementById(id);
   el.addEventListener('click', (e) => {
@@ -171,63 +292,135 @@ function segment(id, key) {
 segment('metric-seg', 'series');
 segment('mode-seg', 'mode');
 
-document.getElementById('csv-btn').onclick = () => {
-  const blob = new Blob([toCSV(state.agg, state.label)], { type: 'text/csv' });
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(blob),
-    download: `firewatch_${state.label.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}.csv`,
-  });
+const slug = () => state.label.replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '').toLowerCase();
+const rangeSlug = () => `${ymKey(state.from)}_${ymKey(state.to)}`;
+const rangeText = () => `${ymLabel(state.from)} – ${state.to === state.agg.ym1 && state.agg.partialLast ? state.agg.lastDate : ymLabel(state.to)}`;
+
+function saveText(text, filename) {
+  const blob = new Blob([text], { type: 'text/csv' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
   a.click();
-  URL.revokeObjectURL(a.href);
-};
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+const csvMenu = document.getElementById('csv-menu');
+document.getElementById('csv-btn').onclick = (e) => { e.stopPropagation(); csvMenu.hidden = !csvMenu.hidden; };
+document.addEventListener('click', () => { csvMenu.hidden = true; });
+csvMenu.addEventListener('click', (e) => {
+  const kind = e.target.dataset?.csv;
+  if (!kind) return;
+  const { agg, from, to, label } = state;
+  if (kind === 'monthly') saveText(toCSV(agg, label, from, to, monthlyMedians(agg, 'harm')), `firewatch_${slug()}_${rangeSlug()}_monthly.csv`);
+  else saveText(cellsCSV(agg, label, from, to), `firewatch_${slug()}_${rangeSlug()}_cells.csv`);
+});
+
+document.querySelectorAll('button.png').forEach((btn) => {
+  btn.onclick = () => {
+    const which = btn.dataset.png;
+    const titles = {
+      calendar: 'Burning-activity calendar',
+      anomaly: document.getElementById('anom-title').textContent,
+      season: 'Seasonal profile',
+      annual: 'Annual totals',
+    };
+    const svgs = which === 'calendar'
+      ? [document.querySelector('#calendar svg'), document.querySelector('#cal-legend svg')]
+      : [document.querySelector(`#${which} svg`)];
+    downloadPNG(svgs, {
+      title: `${state.label} — ${titles[which]}`,
+      subtitle: `${SERIES_NAME[state.series]}${state.mode === 'anom' && which === 'calendar' ? ' (anomaly vs typical month)' : ''} · ${rangeText()}`,
+      filename: `firewatch_${slug()}_${which}.png`,
+    });
+  };
+});
 
 function select(ym) {
-  state.selected = ym;
+  state.selected = clampSel(ym);
   render();
 }
 
+// ---------------------------------------------------------------- render
 function render() {
-  const { agg, series, mode, selected } = state;
+  const { agg, series, mode, selected, from, to } = state;
   if (!agg) return;
-  const seriesName = { harm: 'harmonised VIIRS-equivalent detections', modis: 'raw MODIS detections', snpp: 'raw VIIRS S-NPP detections', n20: 'raw VIIRS NOAA-20 detections' }[series];
   document.getElementById('area-title').textContent = state.label;
-  document.getElementById('area-sub').textContent = `Monthly ${seriesName}, ${ymLabel(agg.ym0)} – ${agg.lastDate}. Click any month to compare it with its history.`;
-  document.getElementById('cal-hint').textContent = mode === 'anom' ? '· colour = how this month compares with the median for that calendar month' : '· colour = detections per month';
-  renderStats();
-  drawCalendar(document.getElementById('calendar'), document.getElementById('cal-legend'), agg, { series, mode, selected, onSelect: select });
+  document.getElementById('area-sub').textContent = `${SERIES_NAME[series]} per month, ${rangeText()}. Click any month to compare it with its history.`;
+  document.getElementById('cal-hint').textContent = mode === 'anom' ? '· colour = this month vs the median for that calendar month' : '· colour = detections per month';
+  const yrs = completeYears(agg, series, from, to);
+  const tr = trend(yrs);
+  renderStats(tr, yrs);
+  renderOutlook();
+  drawCalendar(document.getElementById('calendar'), document.getElementById('cal-legend'), agg, { series, mode, selected, onSelect: select, from, to });
   drawAnomaly(document.getElementById('anomaly'), document.getElementById('anom-title'), agg, { series, selected });
   drawSeason(document.getElementById('season'), agg, { series, selected });
-  drawAnnual(document.getElementById('annual'), agg, { series, selected, onSelect: select });
+  drawAnnual(document.getElementById('annual'), agg, { series, selected, onSelect: select, from, to, trend: tr });
 }
 
-function renderStats() {
-  const { agg, series, selected } = state;
-  let total = 0, recM = { v: -1 }, years = new Map();
-  for (let k = 0; k < agg.harm.length; k++) {
-    const v = valueAt(agg, series, k);
+const ratioText = (r) => (r >= 1 ? `${r.toFixed(1)}×` : `${Math.round(r * 100)}%`);
+
+function renderStats(tr, yrs) {
+  const { agg, series, selected, from, to } = state;
+  let total = 0, recM = { v: -1 };
+  for (let ym = from; ym <= to; ym++) {
+    const v = valueAt(agg, series, ym - agg.ym0);
     if (v == null) continue;
-    const ym = agg.ym0 + k;
     total += v;
     if (v > recM.v) recM = { v, ym };
-    years.set(ymYear(ym), (years.get(ymYear(ym)) ?? 0) + v);
   }
-  // record year among complete years only
-  const y0 = ymYear(agg.ym0), y1 = ymYear(agg.ym1);
-  let recY = { v: -1 };
-  for (const [y, v] of years) if (y > y0 && y < y1 && v > recY.v) recY = { y, v };
+  const recY = d3.greatest(yrs, (d) => d.t);
   const meds = monthlyMedians(agg, series);
   const peak = d3.maxIndex(meds, (d) => d.median);
   const vSel = valueAt(agg, series, selected - agg.ym0) ?? 0;
   const ratio = (vSel + 1) / (meds[ymMonth(selected)].median + 1);
+  let trendTile;
+  if (!tr) trendTile = ['Trend', '—', 'needs 8+ complete years in range'];
+  else {
+    const sig = tr.p < 0.05;
+    const dir = tr.slope > 0 ? 'rising' : 'falling';
+    trendTile = [`Trend ${tr.y0}–${tr.y1}`, `${tr.pctPerYear >= 0 ? '+' : ''}${tr.pctPerYear.toFixed(1)}%/yr`,
+      sig ? `${dir}, significant (p = ${tr.p.toFixed(3)})` : `no significant trend (p = ${tr.p.toFixed(2)})`];
+  }
   const tiles = [
-    ['Total detections', fmtN(total), `${ymYear(agg.ym0)}–${y1}`],
-    ['Peak fire month', MONTHS[peak], `median ${fmtN(meds[peak].median)} detections`],
-    ['Record year', recY.y ?? '—', recY.y ? `${fmtN(recY.v)} detections` : ''],
+    ['Total detections', fmtN(total), rangeText()],
+    ['Typical peak month', MONTHS[peak], `median ${fmtN(meds[peak].median)} detections`],
+    ['Record year', recY ? recY.y : '—', recY ? `${fmtN(recY.t)} detections (complete years)` : 'no complete year in range'],
     ['Record month', recM.ym != null ? ymLabel(recM.ym) : '—', `${fmtN(recM.v)} detections`],
-    [ymLabel(selected), fmtN(vSel), `${ratio >= 1 ? ratio.toFixed(1) + '×' : Math.round(ratio * 100) + '%'} of typical ${MONTHS[ymMonth(selected)]}`],
+    [ymLabel(selected), fmtN(vSel), `${ratioText(ratio)} of typical ${MONTHS[ymMonth(selected)]}`],
+    trendTile,
   ];
   document.getElementById('stats').innerHTML = tiles
-    .map(([k, v, s], i) => `<div class="stat${i === 4 ? ' hl' : ''}"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+    .map(([k, v, s], i) => `<div class="stat${i === 4 ? ' hl' : ''}"${i === 5 ? ' title="Theil–Sen slope of annual totals, relative to the median year; significance from the Mann–Kendall test"' : ''}><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+}
+
+const LEVEL_TEXT = { high: 'Often severe', moderate: 'Sometimes severe', low: 'Rarely severe' };
+
+function renderOutlook() {
+  const { agg, series } = state;
+  const o = outlook(agg, series);
+  const cards = o.months.map((mo, i) => {
+    const lv = level(mo.pHigh);
+    const isNow = i === 0 && o.current;
+    const head = isNow
+      ? `<div class="ol-when">${ymLabel(mo.ym)} <span class="ol-tag">in progress</span></div>
+         <div class="ol-now">${fmtN(o.current.soFar)} so far <span class="muted">(1–${o.current.day} ${MONTHS[mo.m]})</span><br>
+         on pace for ~${fmtN(o.current.pace)} · <b>${ratioText((o.current.pace + 1) / (mo.median + 1))}</b> of typical</div>`
+      : `<div class="ol-when">${ymLabel(mo.ym)}</div>`;
+    return `<div class="ol-card ol-${lv}">
+      ${head}
+      <div class="ol-chip">${LEVEL_TEXT[lv]}</div>
+      <div class="ol-row"><span>Typical</span><b>${fmtN(mo.median)}</b></div>
+      <div class="ol-row"><span>Usual range</span><b>${fmtN(mo.p25)}–${fmtN(mo.p75)}</b></div>
+      <div class="ol-row"><span>Severe month in</span><b>${mo.nHigh} of ${mo.n} years</b></div>
+      <div class="ol-row"><span>Worst on record</span><b>${mo.top ? `${mo.top.y} (${fmtN(mo.top.v)})` : '—'}</b></div>
+    </div>`;
+  }).join('');
+  const r = o.recent;
+  const word = r.ratio >= 1.5 ? 'above normal' : r.ratio <= 0.67 ? 'below normal' : 'near normal';
+  document.getElementById('outlook').innerHTML = `
+    <div class="ol-grid">${cards}</div>
+    <p class="ol-foot"><b>Recent conditions:</b> ${ymLabel(r.from)} – ${ymLabel(r.to)} had ${fmtN(r.v)} detections,
+      <b>${ratioText(r.ratio)}</b> of typical (${word}).
+      <span class="muted">“Severe” = above this area's 90th-percentile month (${fmtN(o.high)} detections). Likelihood: often ≥ 40% of years, sometimes 15–40%, rarely &lt; 15%.</span></p>`;
 }
 
 let rt;
@@ -250,7 +443,11 @@ function route() {
 }
 
 function initialArea(q) {
-  const preset = PRESETS.find((p) => p.id === q.get('preset'));
+  if (q.get('from') && q.get('to')) state.pendingRange = [parseYm(q.get('from')), parseYm(q.get('to'))];
+  if (q.get('pt')) {
+    const [lat, lon, r] = q.get('pt').split(',').map(Number);
+    return setArea(circleArea(lat, lon, r), `${r} km around ${lat.toFixed(3)}°, ${lon.toFixed(3)}°`, null, true);
+  }
   if (q.get('bbox')) {
     const [s, n, w, e] = q.get('bbox').split(',').map(Number);
     return setArea({ bbox: { s, n, w, e } }, 'Shared area', null, true);
@@ -261,9 +458,10 @@ function initialArea(q) {
     const bbox = { s: Math.min(...lats), n: Math.max(...lats), w: Math.min(...lons), e: Math.max(...lons) };
     return setArea({ bbox, poly }, 'Shared polygon', null, true);
   }
-  const p = preset ?? PRESETS[0];
+  const p = PRESETS.find((pp) => pp.id === q.get('preset')) ?? PRESETS[0];
   setArea({ bbox: p.bbox }, p.name, p.focus, true, p.id);
 }
 
+await initRangeControls();
 addEventListener('hashchange', route);
 route();
