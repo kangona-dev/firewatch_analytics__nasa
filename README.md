@@ -36,3 +36,6 @@ Import the repo in Vercel, set **Root Directory = `web`** (Vite is auto-detected
 ## Data & credits
 NASA FIRMS, https://firms.modaps.eosdis.nasa.gov/. Base map © OpenStreetMap contributors.
 Built with assistance from Claude Code (Anthropic).
+
+## Team & licence
+Divyanshu Mishra and Kangona Sinha. MIT licence (see `LICENSE`).

@@ -57,6 +57,7 @@ export async function aggregate(area) {
     harm: new Float64Array(len), modis: new Float64Array(len),
     snpp: new Float64Array(len), n20: new Float64Array(len),
     src: idx.src_by_ym, cells: 0, partialLast: idx.partial_last_month, lastDate: idx.last_detection_date,
+    cellList: [],
   };
   for (const tile of tiles) {
     for (const [cy, cx, yms, h, m, sn, nn] of tile.cells) {
@@ -64,6 +65,7 @@ export async function aggregate(area) {
       if (lat < s || lat > n || lon < w || lon > e) continue;
       if (area.poly && !inPoly(lat, lon, area.poly)) continue;
       out.cells++;
+      out.cellList.push({ cy, cx, yms, h, m, sn, nn });
       for (let i = 0; i < yms.length; i++) {
         const k = yms[i] - ym0;
         if (k < 0 || k >= len) continue;
@@ -81,19 +83,53 @@ export function available(series, ym) {
   return true;
 }
 
-export function toCSV(agg, areaLabel) {
+const csvHeader = (areaLabel, from, to, agg) => [
+  `# Firewatch Analytics export — ${areaLabel.replace(/[\r\n,]/g, ' ')}`,
+  `# Date range: ${ymLabel(from)} to ${ymLabel(to)}${to === agg.ym1 && agg.partialLast ? ` (last month partial, data to ${agg.lastDate})` : ''}`,
+  '# harmonised = VIIRS S-NPP-equivalent fire detections (MODIS and NOAA-20 calibrated to S-NPP)',
+  '# Data: NASA FIRMS MODIS C6.1, VIIRS S-NPP 375m, VIIRS NOAA-20 375m; type=0 vegetation fires; MODIS conf>=30, VIIRS nominal/high',
+];
+
+/** Monthly series for the area. `medians` = harmonised typical value per calendar month (full record). */
+export function toCSV(agg, areaLabel, from, to, medians) {
   const rows = [
-    `# Firewatch Analytics export — ${areaLabel}`,
-    '# harmonised = VIIRS S-NPP-equivalent fire detections; source = sensor used for the harmonised value',
-    '# Data: NASA FIRMS MODIS C6.1, VIIRS S-NPP 375m, VIIRS NOAA-20 375m (type=0 vegetation fires, nominal/high confidence)',
-    'year,month,harmonised,source,modis_raw,viirs_snpp_raw,viirs_noaa20_raw',
+    ...csvHeader(areaLabel, from, to, agg),
+    'year,month,harmonised,source,typical_harmonised_median,ratio_to_typical,modis_raw,viirs_snpp_raw,viirs_noaa20_raw',
   ];
-  for (let ym = agg.ym0; ym <= agg.ym1; ym++) {
+  for (let ym = from; ym <= to; ym++) {
     const k = ym - agg.ym0;
+    const med = medians[ymMonth(ym)].median;
     rows.push([
       ymYear(ym), ymMonth(ym) + 1, agg.harm[k].toFixed(1), SRC_NAMES[agg.src[k]],
+      med.toFixed(1), ((agg.harm[k] + 1) / (med + 1)).toFixed(2),
       agg.modis[k], available('snpp', ym) ? agg.snpp[k] : '', available('n20', ym) ? agg.n20[k] : '',
     ].join(','));
+  }
+  return rows.join('\n');
+}
+
+/** One row per 0.1° cell in the area: totals over the date range + that cell's peak month. */
+export function cellsCSV(agg, areaLabel, from, to) {
+  const rows = [
+    ...csvHeader(areaLabel, from, to, agg),
+    'cell_lat_min,cell_lon_min,cell_lat_center,cell_lon_center,harmonised_total,modis_raw_total,viirs_snpp_raw_total,viirs_noaa20_raw_total,active_months,peak_month,peak_month_harmonised',
+  ];
+  const cells = [];
+  for (const c of agg.cellList) {
+    let h = 0, m = 0, s = 0, n = 0, act = 0, peak = null, pv = -1;
+    for (let i = 0; i < c.yms.length; i++) {
+      const ym = c.yms[i];
+      if (ym < from || ym > to) continue;
+      h += c.h[i]; m += c.m[i]; s += c.sn[i]; n += c.nn[i];
+      if (c.h[i] > 0) act++;
+      if (c.h[i] > pv) { pv = c.h[i]; peak = ym; }
+    }
+    if (h > 0 || m + s + n > 0) cells.push([c.cy / 10, c.cx / 10, (c.cy + 0.5) / 10, (c.cx + 0.5) / 10, h, m, s, n, act, peak, pv]);
+  }
+  cells.sort((a, b) => b[4] - a[4]);
+  for (const r of cells) {
+    rows.push([r[0].toFixed(1), r[1].toFixed(1), r[2].toFixed(2), r[3].toFixed(2), r[4].toFixed(1), r[5], r[6], r[7], r[8],
+      r[9] == null ? '' : `${ymYear(r[9])}-${String(ymMonth(r[9]) + 1).padStart(2, '0')}`, r[10].toFixed(1)].join(','));
   }
   return rows.join('\n');
 }

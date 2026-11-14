@@ -134,5 +134,5 @@ export function renderAbout(el) {
   <h2>AI disclosure</h2>
   <p>This project was built with assistance from Claude Code (Anthropic), which was used for code generation, data-pipeline design and documentation. The team reviewed, tested and directed all of the work.</p>
   <h2>Licence</h2>
-  <p>Code: MIT. FIRMS data is distributed by NASA under its open data policy.</p>`;
+  <p>Code: MIT licence, © 2026 Divyanshu Mishra and Kangona Sinha. FIRMS data is distributed by NASA under its open data policy.</p>`;
 }
