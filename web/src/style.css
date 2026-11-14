@@ -238,3 +238,15 @@ tr.best td { font-weight: 700; background: color-mix(in srgb, var(--accent) 10%,
 }
 
 .bbox-form[hidden] { display: none; }
+
+/* ---- regional factor map (Method page) ---- */
+.factor-card { margin-top: 16px; }
+.factor-wrap { position: relative; }
+#factor-map { height: 460px; border-radius: 8px; border: 1px solid var(--line); }
+.factor-legend {
+  position: absolute; right: 10px; bottom: 24px; z-index: 500; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px;
+}
+.factor-tt { font-size: 0.8rem; line-height: 1.4; }
+@media (max-width: 600px) { #factor-map { height: 340px; } }
+#factor-map .leaflet-tile-pane { filter: grayscale(1) opacity(0.55); }

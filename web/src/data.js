@@ -16,6 +16,7 @@ export function loadIndex() {
 }
 export const loadOverview = () => fetch(`${BASE}overview.json`).then((r) => r.json());
 export const loadValidation = () => fetch(`${BASE}validation.json`).then((r) => r.json());
+export const loadFactors = () => fetch(`${BASE}factors.json`).then((r) => r.json());
 
 function loadTile(ty, tx) {
   const key = `${ty}_${tx}`;

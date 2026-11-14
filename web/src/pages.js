@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
-import { loadValidation } from './data.js';
+import L from 'leaflet';
+import { loadValidation, loadFactors } from './data.js';
 import { showTip, hideTip, fmtN } from './charts.js';
 
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -30,6 +31,14 @@ export async function renderMethod(el) {
 
   <div class="card"><h3>Australia-wide annual detections, by sensor</h3><div id="m-chart"></div>
   <p class="hint">Raw MODIS (grey) sits far below VIIRS. After scaling, MODIS (dashed) lines up with VIIRS S-NPP over the 2012–2025 overlap, which gives one continuous series back to 2000.</p></div>
+
+  <div class="card factor-card">
+    <h3>Where MODIS misses the most fires: the regional factor <i>k</i></h3>
+    <p class="hint">Each square is 1°×1° (about 110 km). Its colour is how many VIIRS detections there are for every MODIS detection, fitted over 2012–2025.
+    Higher <i>k</i> means more small fires that MODIS's 1 km pixels miss. Faded squares have little fire data of their own and lean on their regional value. Hover over a square for details.</p>
+    <div class="factor-wrap"><div id="factor-map"></div><div id="factor-legend" class="factor-legend"></div></div>
+    <p class="hint" id="factor-summary"></p>
+  </div>
 
   <h2>Pipeline</h2>
   <ol>
@@ -66,6 +75,49 @@ export async function renderMethod(el) {
   </ul>`;
 
   drawSensorChart(document.getElementById('m-chart'), v.national_monthly);
+  drawFactorMap(await loadFactors());
+}
+
+function drawFactorMap(fx) {
+  const lo = 2.5, hi = 7;
+  const color = d3.scaleSequential(d3.interpolateViridis).domain([lo, hi]).clamp(true);
+  const map = L.map('factor-map', { zoomSnap: 0.25, scrollWheelZoom: false, minZoom: 3, maxBounds: [[-50, 100], [0, 170]] })
+    .fitBounds([[-44, 112], [-10, 154]]);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 10, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(map);
+  const renderer = L.canvas({ padding: 0.2 });
+  for (const [ty, tx, k, m, s, w] of fx.tiles) {
+    L.rectangle([[ty, tx], [ty + 1, tx + 1]], {
+      renderer, stroke: false, fillColor: color(k), fillOpacity: 0.3 + 0.6 * w,
+    }).bindTooltip(
+      `<b>${Math.abs(ty + 1)}–${Math.abs(ty)}°S,${tx}–${tx + 1}°E</b><br>k = <b>${k.toFixed(2)}</b> VIIRS per MODIS detection<br>` +
+      `Overlap data: ${fmtN(m)} MODIS · ${fmtN(s)} VIIRS<br>` +
+      `<span class="muted">${Math.round(w * 100)}% own data, ${Math.round((1 - w) * 100)}% regional fallback</span>`,
+      { sticky: true, className: 'factor-tt' },
+    ).addTo(map);
+  }
+  // legend
+  const el = document.getElementById('factor-legend');
+  const w = 220, svg = d3.select(el).append('svg').attr('width', w + 20).attr('height', 46);
+  const grad = svg.append('defs').append('linearGradient').attr('id', 'k-grad');
+  d3.range(0, 1.01, 0.1).forEach((t) => grad.append('stop').attr('offset', `${t * 100}%`).attr('stop-color', color(lo + t * (hi - lo))));
+  svg.append('text').attr('x', 10).attr('y', 11).attr('class', 'axis-l').text('k (VIIRS ÷ MODIS)');
+  svg.append('rect').attr('x', 10).attr('y', 16).attr('width', w).attr('height', 10).attr('rx', 2).attr('fill', 'url(#k-grad)');
+  const x = d3.scaleLinear().domain([lo, hi]).range([10, 10 + w]);
+  svg.append('line').attr('x1', x(fx.k_national)).attr('x2', x(fx.k_national)).attr('y1', 13).attr('y2', 29).attr('stroke', css('--fg')).attr('stroke-width', 2);
+  svg.selectAll('text.t').data([lo, fx.k_national, hi]).join('text').attr('class', 'axis-l t')
+    .attr('x', (d) => x(d)).attr('y', 42).attr('text-anchor', (d, i) => (i === 0 ? 'start' : i === 2 ? 'end' : 'middle'))
+    .text((d, i) => (i === 1 ? `national ${d.toFixed(1)}` : i === 0 ? `≤ ${d}` : `≥ ${d}`));
+
+  const ks = fx.tiles.map((t) => t[2]).sort(d3.ascending);
+  const strong = fx.tiles.filter((t) => t[5] > 0.5).length;
+  const p10 = d3.quantile(ks, 0.1), p90 = d3.quantile(ks, 0.9);
+  const over = Math.round((fx.k_national / p10 - 1) * 100), under = Math.round((1 - fx.k_national / p90) * 100);
+  document.getElementById('factor-summary').innerHTML =
+    `${fx.tiles.length} tiles. The middle 80% of tiles range from <b>${p10.toFixed(1)}×</b> to <b>${p90.toFixed(1)}×</b>, ` +
+    `so a single national factor (${fx.k_national.toFixed(1)}×) would over-count pre-2012 fire in low-<i>k</i> regions by ~${over}% and under-count it in high-<i>k</i> regions by ~${under}%. ` +
+    `${strong} tiles are mostly fitted from their own data; the rest borrow strength from their 5° region (shrinkage, λ = ${fx.lambda}).`;
 }
 
 function drawSensorChart(el, nm) {
@@ -115,13 +167,25 @@ export function renderAbout(el) {
   <h1>About</h1>
   <p class="lede">Firewatch Analytics answers a simple question for any patch of Australia: <b>when does it burn, and is this year unusual?</b>
   It joins 26 years of NASA satellite fire detections into one consistent record and shows it as a calendar you can read at a glance.</p>
+  <h2>Who it's for</h2>
+  <p>Emergency and early-warning teams, land and park managers, firefighters and researchers who need to know whether a place is in its usual fire season or something unusual is happening.</p>
   <h2>How to use it</h2>
   <ol>
-    <li>Pick a preset, draw a rectangle or polygon on the map, or type a bounding box.</li>
-    <li>Read the calendar. Each row is a year and each column is a month, and brighter means more fire. Switch to <i>Anomaly</i> to see which months were unusual for that time of year.</li>
-    <li>Click a month to compare it with every other year, and download the numbers as CSV.</li>
-    <li>Share the URL. It keeps your selected area.</li>
+    <li><b>Choose an area.</b> Pick a preset, draw a rectangle, polygon or circle on the map, or type a point with a radius or a bounding box.</li>
+    <li><b>Choose a date range</b> (or a quick range such as the last 10 years). Totals, records, the trend, the calendar and the downloads all follow it.</li>
+    <li><b>Read the calendar.</b> Each row is a year and each column is a month, and brighter means more fire. Switch to <i>Anomaly</i> to see which months were unusual for that time of year, or switch to a single raw sensor to see the problem harmonisation solves.</li>
+    <li><b>Check the season outlook.</b> For the current month and the next three, it shows what is typical, how often that month has been severe, and how the current month is tracking. It is based only on the historical record, not on a weather forecast.</li>
+    <li><b>Click any month</b> to compare it with the same month in every other year.</li>
+    <li><b>Download</b> the monthly series or per-cell totals as CSV, and any chart as a PNG.</li>
+    <li><b>Share the URL.</b> It keeps your area and date range.</li>
   </ol>
+  <h2>What the numbers mean</h2>
+  <ul>
+    <li><b>Detections</b> are satellite hotspot pixels (active fire), counted per month in VIIRS S-NPP-equivalent units. They show how much burning there was, not the area burned.</li>
+    <li><b>Typical</b> is the median of that calendar month across all years on record.</li>
+    <li><b>Trend</b> is the Theil–Sen slope of annual totals (as % of the median year per year), tested with the Mann–Kendall test. It is only shown with 8 or more complete years.</li>
+    <li><b>Severe month</b> means above this area's 90th-percentile month.</li>
+  </ul>
   <h2>Challenge</h2>
   <p>NASA Space Apps Challenge 2026: <i>Harmonization of MODIS and VIIRS Hot Spots</i>.</p>
   <h2>Data &amp; references</h2>
@@ -129,6 +193,7 @@ export function renderAbout(el) {
     <li>NASA FIRMS (Fire Information for Resource Management System), <a href="https://firms.modaps.eosdis.nasa.gov/" target="_blank" rel="noopener">firms.modaps.eosdis.nasa.gov</a>: MODIS Collection 6.1 (MCD14), VIIRS S-NPP 375 m (VNP14IMG), VIIRS NOAA-20 375 m (VJ114IMG) active fire archive and NRT products. We acknowledge the use of data and imagery from LANCE FIRMS operated by NASA's Earth Science Data and Information System (ESDIS).</li>
     <li>Giglio, L., Schroeder, W., Justice, C.O. (2016). The collection 6 MODIS active fire detection algorithm and fire products. <i>Remote Sensing of Environment</i>, 178, 31–41.</li>
     <li>Schroeder, W., Oliva, P., Giglio, L., Csiszar, I. (2014). The New VIIRS 375 m active fire detection data product: Algorithm description and initial assessment. <i>Remote Sensing of Environment</i>, 143, 85–96.</li>
+    <li>Sen, P.K. (1968). Estimates of the regression coefficient based on Kendall's tau. <i>Journal of the American Statistical Association</i>, 63(324), 1379–1389. Mann, H.B. (1945). Nonparametric tests against trend. <i>Econometrica</i>, 13(3), 245–259.</li>
     <li>Base map © OpenStreetMap contributors. Libraries: Leaflet, Leaflet.draw, D3.js, Vite; pipeline: Python, pandas, DuckDB.</li>
   </ul>
   <h2>AI disclosure</h2>
