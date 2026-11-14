@@ -1,0 +1,28 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Raw FIRMS data (huge, never commit)
+/dataset/
+/data/
+*.zip
+*.csv
+*.parquet
+*.duckdb
+
+# Python
+__pycache__/
+.venv/
+venv/
+*.pyc
+.ipynb_checkpoints/
+
+# Node / web
+node_modules/
+dist/
+.vercel/
+
+# Local AI assistant notes (not part of the repo)
+CLAUDE.md
+.claude/

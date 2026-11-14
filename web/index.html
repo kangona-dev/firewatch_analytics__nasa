@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Firewatch Analytics</title>
+  <meta name="description" content="Harmonised MODIS + VIIRS active-fire history for any area of Australia, 2000 to now. NASA Space Apps 2026." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 2c2 6 9 9 9 17a9 9 0 0 1-18 0c0-4 2-6 4-8 0 3 1 5 3 5 0-6 0-10 2-14z' fill='%23e8590c'/></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/">
+      <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><path d="M16 2c2 6 9 9 9 17a9 9 0 0 1-18 0c0-4 2-6 4-8 0 3 1 5 3 5 0-6 0-10 2-14z" fill="currentColor"/></svg>
+      Firewatch Analytics
+    </a>
+    <nav>
+      <a href="#/" data-route="explore">Explore</a>
+      <a href="#/method" data-route="method">Method &amp; validation</a>
+      <a href="#/about" data-route="about">About</a>
+    </nav>
+  </header>
+
+  <main id="view-explore" class="view">
+    <section class="explore">
+      <aside class="panel select-panel">
+        <h2>1 · Choose an area</h2>
+        <p class="hint">Draw a rectangle or polygon on the map, pick a preset, or type a bounding box.</p>
+        <div class="presets" id="presets"></div>
+        <form id="bbox-form" class="bbox-form">
+          <label>Lat min <input name="s" type="number" step="0.1" min="-45" max="-9" required></label>
+          <label>Lat max <input name="n" type="number" step="0.1" min="-45" max="-9" required></label>
+          <label>Lon min <input name="w" type="number" step="0.1" min="112" max="155" required></label>
+          <label>Lon max <input name="e" type="number" step="0.1" min="112" max="155" required></label>
+          <button type="submit">Apply box</button>
+        </form>
+        <div id="area-info" class="area-info"></div>
+      </aside>
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="map-legend" id="map-legend"></div>
+      </div>
+    </section>
+
+    <section class="results" id="results" hidden>
+      <div class="results-head">
+        <div>
+          <h2 id="area-title">Burn calendar</h2>
+          <p class="hint" id="area-sub"></p>
+        </div>
+        <div class="controls">
+          <div class="seg" id="metric-seg" role="group" aria-label="Series">
+            <button data-v="harm" class="on">Harmonised</button>
+            <button data-v="modis">MODIS raw</button>
+            <button data-v="snpp">VIIRS S-NPP raw</button>
+            <button data-v="n20">VIIRS NOAA-20 raw</button>
+          </div>
+          <div class="seg" id="mode-seg" role="group" aria-label="Colour by">
+            <button data-v="count" class="on">Detections</button>
+            <button data-v="anom">Anomaly vs typical</button>
+          </div>
+          <button id="csv-btn" class="primary">Download CSV</button>
+        </div>
+      </div>
+
+      <div class="stats" id="stats"></div>
+
+      <div class="grid2">
+        <div class="card wide">
+          <h3>Burning-activity calendar <span class="hint" id="cal-hint"></span></h3>
+          <div id="calendar"></div>
+          <div id="cal-legend" class="legend"></div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3 id="anom-title">This month vs typical</h3>
+          <div id="anomaly"></div>
+        </div>
+        <div class="card">
+          <h3>Seasonal profile</h3>
+          <div id="season"></div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card wide">
+          <h3>Annual totals <span class="hint">· click a year to jump to it</span></h3>
+          <div id="annual"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <main id="view-method" class="view prose" hidden></main>
+  <main id="view-about" class="view prose" hidden></main>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+  <footer class="foot">Data: NASA FIRMS (MODIS C6.1, VIIRS S-NPP &amp; NOAA-20 375 m). Built for NASA Space Apps 2026 with assistance from Claude Code.</footer>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
