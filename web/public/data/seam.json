@@ -1,0 +1,166 @@
+{
+ "note": "National annual totals, Welch t-test on log values. 2012 skipped (transition year).",
+ "seam_2012": {
+  "raw": {
+   "before": "2007-2011",
+   "after": "2013-2017",
+   "step_factor": 4.33,
+   "t": 6.37,
+   "p": 0.0011,
+   "significant": true
+  },
+  "harmonised": {
+   "before": "2007-2011",
+   "after": "2013-2017",
+   "step_factor": 0.93,
+   "t": -0.33,
+   "p": 0.7539,
+   "significant": false
+  }
+ },
+ "placebo": {
+  "2007 (MODIS only)": {
+   "before": "2002-2006",
+   "after": "2007-2011",
+   "step_factor": 0.86,
+   "t": -0.65,
+   "p": 0.5403,
+   "significant": false
+  },
+  "2018 (VIIRS only)": {
+   "before": "2013-2017",
+   "after": "2018-2022",
+   "step_factor": 1.01,
+   "t": 0.05,
+   "p": 0.9648,
+   "significant": false
+  }
+ },
+ "annual": [
+  {
+   "year": 2001,
+   "raw": 220850,
+   "harmonised": 990861
+  },
+  {
+   "year": 2002,
+   "raw": 315979,
+   "harmonised": 1426859
+  },
+  {
+   "year": 2003,
+   "raw": 199148,
+   "harmonised": 984100
+  },
+  {
+   "year": 2004,
+   "raw": 295150,
+   "harmonised": 1352716
+  },
+  {
+   "year": 2005,
+   "raw": 177810,
+   "harmonised": 849242
+  },
+  {
+   "year": 2006,
+   "raw": 287274,
+   "harmonised": 1314973
+  },
+  {
+   "year": 2007,
+   "raw": 240095,
+   "harmonised": 1098238
+  },
+  {
+   "year": 2008,
+   "raw": 172428,
+   "harmonised": 814627
+  },
+  {
+   "year": 2009,
+   "raw": 235893,
+   "harmonised": 1149059
+  },
+  {
+   "year": 2010,
+   "raw": 112951,
+   "harmonised": 527623
+  },
+  {
+   "year": 2011,
+   "raw": 411670,
+   "harmonised": 1848352
+  },
+  {
+   "year": 2012,
+   "raw": 1938936,
+   "harmonised": 2006021
+  },
+  {
+   "year": 2013,
+   "raw": 841213,
+   "harmonised": 841213
+  },
+  {
+   "year": 2014,
+   "raw": 1074779,
+   "harmonised": 1074779
+  },
+  {
+   "year": 2015,
+   "raw": 1009578,
+   "harmonised": 1009578
+  },
+  {
+   "year": 2016,
+   "raw": 691033,
+   "harmonised": 691033
+  },
+  {
+   "year": 2017,
+   "raw": 1097139,
+   "harmonised": 1097139
+  },
+  {
+   "year": 2018,
+   "raw": 1311116,
+   "harmonised": 1311116
+  },
+  {
+   "year": 2019,
+   "raw": 1425218,
+   "harmonised": 1425218
+  },
+  {
+   "year": 2020,
+   "raw": 754713,
+   "harmonised": 754713
+  },
+  {
+   "year": 2021,
+   "raw": 721087,
+   "harmonised": 721087
+  },
+  {
+   "year": 2022,
+   "raw": 708930,
+   "harmonised": 708930
+  },
+  {
+   "year": 2023,
+   "raw": 1660102,
+   "harmonised": 1660102
+  },
+  {
+   "year": 2024,
+   "raw": 881613,
+   "harmonised": 881613
+  },
+  {
+   "year": 2025,
+   "raw": 1127201,
+   "harmonised": 1127201
+  }
+ ]
+}
