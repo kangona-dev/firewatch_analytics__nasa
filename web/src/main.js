@@ -3,7 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import * as d3 from 'd3';
 import './style.css';
-import { aggregate, loadIndex, loadOverview, toCSV, cellsCSV, ymLabel, ymYear, ymMonth, MONTHS } from './data.js';
+import { aggregate, loadIndex, loadOverview, loadTrust, TRUST, toCSV, cellsCSV, ymLabel, ymYear, ymMonth, MONTHS } from './data.js';
 import { drawCalendar, drawAnomaly, drawSeason, drawAnnual, monthlyMedians, valueAt, fmtN } from './charts.js';
 import { completeYears, trend, outlook, level } from './analytics.js';
 import { downloadPNG } from './export.js';
@@ -68,7 +68,13 @@ loadOverview().then((ov) => {
   });
   const layer = new Overview({ pane: 'overlayPane', opacity: 0.85 });
   layer.addTo(map);
-  L.control.layers(null, { 'All-time fire density (harmonised)': layer }, { collapsed: true, position: 'topright' }).addTo(map);
+  const ctl = L.control.layers(null, { 'All-time fire density (harmonised)': layer }, { collapsed: true, position: 'topright' }).addTo(map);
+  loadTrust().then((t) => {
+    const trustLayer = L.layerGroup(t.tiles.map((c) => L.rectangle([[c.lat0, c.lon0], [c.lat0 + 1, c.lon0 + 1]], {
+      stroke: false, fillColor: TRUST[c.class].color, fillOpacity: 0.55,
+    }).bindTooltip(`${TRUST[c.class].label}<br>Typical error ${Math.round(c.err * 100)}%`, { sticky: true })));
+    ctl.addOverlay(trustLayer, 'Harmonisation trust (1° tiles)');
+  });
   document.getElementById('map-legend').innerHTML =
     `<span>All-time detections per 0.25°</span><i style="background:linear-gradient(90deg,${d3.range(0, 1.01, 0.2).map(fireRamp).join(',')})"></i><span class="lg-ends"><b>1</b><b>${d3.format('.2s')(maxV)}</b></span>`;
 });
@@ -381,8 +387,8 @@ function renderStats(tr, yrs) {
       sig ? `${dir}, significant (p = ${tr.p.toFixed(3)})` : `no significant trend (p = ${tr.p.toFixed(2)})`];
   }
   const tiles = [
-    ['Total detections', fmtN(total), rangeText()],
-    ['Typical peak month', MONTHS[peak], `median ${fmtN(meds[peak].median)} detections`],
+    ['Total detections (hot pixels)', fmtN(total), rangeText()],
+    ['Typical peak month', MONTHS[peak], `median ${fmtN(meds[peak].median)} · includes planned burns &amp; crop fires`],
     ['Record year', recY ? recY.y : '—', recY ? `${fmtN(recY.t)} detections (complete years)` : 'no complete year in range'],
     ['Record month', recM.ym != null ? ymLabel(recM.ym) : '—', `${fmtN(recM.v)} detections`],
     [ymLabel(selected), fmtN(vSel), `${ratioText(ratio)} of typical ${MONTHS[ymMonth(selected)]}`],

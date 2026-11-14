@@ -250,3 +250,9 @@ tr.best td { font-weight: 700; background: color-mix(in srgb, var(--accent) 10%,
 .factor-tt { font-size: 0.8rem; line-height: 1.4; }
 @media (max-width: 600px) { #factor-map { height: 340px; } }
 #factor-map .leaflet-tile-pane { filter: grayscale(1) opacity(0.55); }
+
+/* trust map (Method page) */
+#trust-map { height: 460px; border-radius: 8px; border: 1px solid var(--line); }
+#trust-map .leaflet-tile-pane { filter: grayscale(1) opacity(0.55); }
+#trust-legend div { font-size: 12px; line-height: 1.7; }
+@media (max-width: 600px) { #trust-map { height: 340px; } }
