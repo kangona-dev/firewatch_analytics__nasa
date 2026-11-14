@@ -58,7 +58,7 @@ Import the repo in Vercel, set **Root Directory = `web`** (Vite is auto-detected
 
 **Software:** DuckDB, pandas, NumPy, SciPy, Vite, D3, Leaflet, Leaflet.draw. Base map © OpenStreetMap contributors.
 
-**AI use:** built with assistance from Claude Code and Claude (Anthropic) for code, data-pipeline design and writing. All results were run and checked by the team.
+**AI use:** built with assistance from Claude Code and Claude (Anthropic). All results were run and checked by the team.
 
 **Disclaimer:** decision support for planning and research, not a safety-of-life warning system. Hotspots are satellite-detected hot pixels, not individual fires or burned area.
 
