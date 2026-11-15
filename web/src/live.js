@@ -1,6 +1,6 @@
 // Live layer: last 7 days of NASA FIRMS near-real-time detections via our /api/recent proxy.
 import * as d3 from 'd3';
-import { inPoly, MONTHS } from './data.js';
+import { inArea, MONTHS } from './data.js';
 import { showTip, hideTip, fmtN } from './charts.js';
 
 export const AGE_BINS = [
@@ -31,7 +31,7 @@ export async function fetchLive(area) {
   const pts = [];
   for (const [lat, lon, date, time, sensor, conf, frp, dn, sat] of data.rows) {
     if (lat < s || lat > n || lon < w || lon > e) continue;
-    if (area.poly && !inPoly(lat, lon, area.poly)) continue;
+    if (!inArea(lat, lon, area)) continue;
     const t = Date.parse(`${date}T${time.slice(0, 2)}:${time.slice(2)}:00Z`);
     const ageH = (now - t) / 3.6e6;
     // MODIS confidence is 0-100; VIIRS is l/n/h. "good" matches our pipeline filter.
@@ -53,22 +53,28 @@ export function popupHtml(p) {
 }
 
 /**
- * Render the "last 7 days" card.
+ * Compare this week's live activity with a typical stretch of the current month.
+ * Uses NOAA-20 alone (one satellite, calibrated to S-NPP units) so overlapping satellites don't double count.
  * typicalMonth = median harmonised detections for the current calendar month (S-NPP-equivalent units).
  */
-export function renderLiveCard(el, live, { typicalMonth, monthIdx, onToggleMap, mapOn }) {
+export function liveComparison(live, typicalMonth, monthIdx) {
   const good = live.pts.filter((p) => p.good);
   const bySensor = d3.rollup(good, (v) => v.length, (p) => p.sensor);
   const n20 = bySensor.get('NOAA-20') ?? 0;
   const days = d3.utcDays(new Date(`${live.from}T00:00:00Z`), new Date(Date.parse(`${live.to}T00:00:00Z`) + 86400000))
     .map((d) => d.toISOString().slice(0, 10));
-  // Compare NOAA-20 (one satellite, calibrated to S-NPP units) with a typical week for this month.
   const lastDataDay = good.length ? good[0].date : live.to;
   const nDays = days.filter((d) => d <= lastDataDay).length || 1;
   const dim = new Date(Date.UTC(2001, monthIdx + 1, 0)).getUTCDate();
   const typicalPeriod = (typicalMonth * nDays) / dim;
   const n20eq = n20 * K_N20_TO_SNPP;
   const ratio = (n20eq + 1) / (typicalPeriod + 1);
+  return { good, bySensor, days, nDays, typicalPeriod, n20eq, ratio };
+}
+
+/** Render the "last 7 days" card. */
+export function renderLiveCard(el, live, { typicalMonth, monthIdx, onToggleMap, mapOn }) {
+  const { good, bySensor, days, nDays, ratio } = liveComparison(live, typicalMonth, monthIdx);
   const word = ratio >= 1.5 ? 'above' : ratio <= 0.67 ? 'below' : 'close to';
   const maxFrp = d3.greatest(good, (p) => p.frp);
   const latest = good[0];

@@ -45,8 +45,22 @@ export function inPoly(lat, lon, poly) {
 }
 
 /**
+ * Is (lat, lon) inside the area? Areas are a bbox plus optionally
+ *  - poly:  one ring [[lat, lon], ...] (drawn polygon / circle), or
+ *  - polys: [{ outer, holes: [ring...], bb }] (uploaded GeoJSON, may be multi-part with holes).
+ */
+export function inArea(lat, lon, area) {
+  if (area.polys) {
+    return area.polys.some((p) => lat >= p.bb.s && lat <= p.bb.n && lon >= p.bb.w && lon <= p.bb.e
+      && inPoly(lat, lon, p.outer) && !p.holes.some((h) => inPoly(lat, lon, h)));
+  }
+  if (area.poly) return inPoly(lat, lon, area.poly);
+  return true;
+}
+
+/**
  * Aggregate all 0.1° cells whose centre lies inside `area`.
- * area = { bbox: {s, n, w, e}, poly?: [[lat, lon], ...] }
+ * area = { bbox: {s, n, w, e}, poly?: [[lat, lon], ...], polys?: [...] }  (see inArea)
  * Returns { ym0, ym1, harm[], modis[], snpp[], n20[], src[], cells, partialLast, lastDate }
  */
 export async function aggregate(area) {
@@ -72,7 +86,7 @@ export async function aggregate(area) {
     for (const [cy, cx, yms, h, m, sn, nn] of tile.cells) {
       const lat = (cy + 0.5) / 10, lon = (cx + 0.5) / 10;
       if (lat < s || lat > n || lon < w || lon > e) continue;
-      if (area.poly && !inPoly(lat, lon, area.poly)) continue;
+      if (!inArea(lat, lon, area)) continue;
       out.cells++;
       out.cellList.push({ cy, cx, yms, h, m, sn, nn });
       for (let i = 0; i < yms.length; i++) {

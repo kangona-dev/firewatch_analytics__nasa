@@ -116,3 +116,26 @@ export function outlook(agg, series) {
 }
 
 export const level = (p) => (p >= 0.4 ? 'high' : p >= 0.15 ? 'moderate' : 'low');
+
+/**
+ * Critical period: the shortest run of consecutive calendar months (wrapping Dec→Jan) that holds
+ * at least `share` of a typical year's fire, using the mean detections per calendar month over the
+ * full record. Returns { start, len, months[], pct } or { diffuse: true } when fire is spread across
+ * 8+ months (no distinct season), or null when the area has almost no fire.
+ */
+export function criticalPeriod(agg, series = 'harm', share = 0.7) {
+  const means = monthlyMedians(agg, series).map((d) => d.mean);
+  const total = d3.sum(means);
+  if (total < 12) return null; // under ~1 detection a month on average
+  let best = null;
+  for (let len = 1; len <= 12 && !best; len++) {
+    for (let start = 0; start < 12; start++) {
+      let s = 0;
+      for (let i = 0; i < len; i++) s += means[(start + i) % 12];
+      if (s / total >= share && (!best || s > best.sum)) best = { start, len, sum: s };
+    }
+  }
+  if (best.len >= 8) return { diffuse: true, len: best.len };
+  const months = d3.range(best.len).map((i) => (best.start + i) % 12);
+  return { start: best.start, len: best.len, months, pct: Math.round((best.sum / total) * 100) };
+}

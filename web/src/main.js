@@ -5,9 +5,10 @@ import * as d3 from 'd3';
 import './style.css';
 import { aggregate, loadIndex, loadOverview, loadTrust, TRUST, toCSV, cellsCSV, ymLabel, ymYear, ymMonth, MONTHS } from './data.js';
 import { drawCalendar, drawAnomaly, drawSeason, drawAnnual, monthlyMedians, valueAt, fmtN } from './charts.js';
-import { completeYears, trend, outlook, level } from './analytics.js';
+import { completeYears, trend, outlook, level, criticalPeriod } from './analytics.js';
 import { downloadPNG } from './export.js';
-import { fetchLive, renderLiveCard, liveCSV, ageBin, popupHtml, AGE_BINS } from './live.js';
+import { fetchLive, renderLiveCard, liveComparison, liveCSV, ageBin, popupHtml, AGE_BINS } from './live.js';
+import { parseGeoJSON } from './geojson.js';
 import { renderMethod, renderAbout } from './pages.js';
 
 window.L = L;
@@ -166,6 +167,7 @@ async function loadLive() {
   el.innerHTML = '<span class="spinner"></span> Loading live detections from NASA FIRMS…';
   state.live = null;
   liveLayer.redraw();
+  renderStatus(); // archive-based status until live data arrives
   try {
     const live = await fetchLive(state.area);
     if (token !== state.liveToken) return; // a newer area was selected meanwhile
@@ -175,6 +177,7 @@ async function loadLive() {
   } catch (err) {
     if (token !== state.liveToken) return;
     el.innerHTML = `<p class="hint">Live data is unavailable right now (${String(err.message).slice(0, 120)}). The historical calendar below is unaffected.</p>`;
+    renderStatus();
   }
 }
 
@@ -186,6 +189,63 @@ function renderLive() {
     typicalMonth: meds[monthIdx].median, monthIdx, mapOn: state.liveOn,
     onToggleMap: (on) => { if (on) liveLayer.addTo(map); else map.removeLayer(liveLayer); },
   });
+  renderStatus();
+}
+
+// ---------------------------------------------------------------- early-warning status banner
+const STATUS_LEVELS = [
+  { min: 2, key: 'veryhigh', icon: '▲▲', label: 'Very high' },
+  { min: 1.5, key: 'elevated', icon: '▲', label: 'Elevated' },
+  { min: 0.67, key: 'normal', icon: '●', label: 'Normal' },
+  { min: 0, key: 'below', icon: '▼', label: 'Below normal' },
+];
+const monthRange = (cp) => (cp.len === 1 ? MONTHS[cp.start] : `${MONTHS[cp.start]}–${MONTHS[cp.months[cp.len - 1]]}`);
+
+/** One-line status: how unusual is right now, and where are we relative to the critical fire period? */
+function renderStatus() {
+  const el = document.getElementById('status');
+  const { agg } = state;
+  if (!agg) return;
+  const meds = monthlyMedians(agg, 'harm');
+  const nowDate = state.live ? new Date(`${state.live.to}T00:00:00Z`) : new Date(`${agg.lastDate}T00:00:00Z`);
+  const m = nowDate.getUTCMonth();
+
+  // 1. how is now tracking? Prefer live (freshest); fall back to the archive's in-progress month pace.
+  let ratio = null, basis = '', typical = 0, now = 0;
+  if (state.live) {
+    const c = liveComparison(state.live, meds[m].median, m);
+    ratio = c.ratio; typical = c.typicalPeriod; now = c.n20eq;
+    basis = `the last ${c.nDays} days (live NASA FIRMS)`;
+  } else {
+    const o = outlook(agg, 'harm');
+    if (o.current) {
+      ratio = (o.current.pace + 1) / (meds[m].median + 1); typical = meds[m].median; now = o.current.pace;
+      basis = `${MONTHS[m]} so far (to ${agg.lastDate})`;
+    }
+  }
+  const quiet = typical < 3 && now < 3;
+  const lv = ratio == null ? null : quiet ? { key: 'quiet', icon: '○', label: 'Quiet' } : STATUS_LEVELS.find((l) => ratio >= l.min);
+  const head = lv
+    ? `<span class="status-badge">${lv.icon} ${lv.label}</span> <span>${quiet
+      ? `Little or no fire over ${basis}, which is normal here for this time of year.`
+      : `Fire activity over ${basis} is <b>${ratioText(ratio)}</b>${ratio >= 1 ? '' : ' of'} a typical ${MONTHS[m]}.`}</span>`
+    : '<span class="status-badge">… Checking</span> <span>Waiting for live data.</span>';
+
+  // 2. critical period
+  const cp = criticalPeriod(agg, 'harm');
+  let cpText;
+  if (!cp) cpText = 'This area has too little fire on record to define a critical period.';
+  else if (cp.diffuse) cpText = 'Fire here is spread across most of the year. There is no single critical period.';
+  else {
+    const pos = cp.months.indexOf(m);
+    const until = (cp.start - m + 12) % 12;
+    const when = pos >= 0
+      ? `It is <b>in progress</b> (month ${pos + 1} of ${cp.len}).`
+      : until === 1 ? 'It <b>starts next month</b>.' : `It starts in ${until} months.`;
+    cpText = `Critical period: <b>${monthRange(cp)}</b>, which holds ${cp.pct}% of all fire on record here. ${when}`;
+  }
+  el.className = `status status-${lv ? lv.key : 'pending'}`;
+  el.innerHTML = `<div class="status-line">${head}</div><div class="status-line status-cp">${cpText}</div>`;
 }
 
 const drawn = new L.FeatureGroup().addTo(map);
@@ -230,7 +290,9 @@ function showShape(area) {
   drawn.clearLayers();
   const shape = area.circle
     ? L.circle([area.circle.lat, area.circle.lon], { ...SHAPE_STYLE, radius: area.circle.r * 1000 })
-    : area.poly
+    : area.polys
+      ? L.polygon(area.polys.map((p) => [p.outer, ...p.holes]), SHAPE_STYLE)
+      : area.poly
       ? L.polygon(area.poly, SHAPE_STYLE)
       : L.rectangle([[area.bbox.s, area.bbox.w], [area.bbox.n, area.bbox.e]], SHAPE_STYLE);
   drawn.addLayer(shape);
@@ -287,12 +349,40 @@ function areaKm2(area) {
   const { s, n, w, e } = area.bbox;
   const R = 6371;
   const box = (Math.PI / 180) * R * R * Math.abs(Math.sin((n * Math.PI) / 180) - Math.sin((s * Math.PI) / 180)) * Math.abs(e - w);
+  const ringKm2 = (ring) => {
+    const pts = ring.map(([la, lo]) => [lo * Math.cos((la * Math.PI) / 180) * 111.32, la * 110.57]);
+    let a = 0;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += (pts[j][0] + pts[i][0]) * (pts[j][1] - pts[i][1]);
+    return Math.abs(a / 2);
+  };
+  if (area.polys) return d3.sum(area.polys, (p) => ringKm2(p.outer) - d3.sum(p.holes, ringKm2));
   if (!area.poly) return box;
-  const pts = area.poly.map(([la, lo]) => [lo * Math.cos((la * Math.PI) / 180) * 111.32, la * 110.57]);
-  let a = 0;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += (pts[j][0] + pts[i][0]) * (pts[j][1] - pts[i][1]);
-  return Math.abs(a / 2);
+  return ringKm2(area.poly);
 }
+
+// ---------------------------------------------------------------- GeoJSON boundary upload (file picker or drop on map)
+const geoMsg = document.getElementById('geo-msg');
+async function loadBoundaryFile(file) {
+  if (!file) return;
+  if (file.size > 25e6) { geoMsg.textContent = 'That file is over 25 MB. Please simplify it first (e.g. at mapshaper.org).'; return; }
+  try {
+    const g = parseGeoJSON(JSON.parse(await file.text()));
+    const parts = g.polys.length;
+    geoMsg.textContent = `Loaded ${parts} polygon${parts > 1 ? 's' : ''} from ${file.name}.`;
+    await setArea({ bbox: g.bbox, polys: g.polys }, `Uploaded: ${g.name ?? file.name.replace(/\.(geo)?json$/i, '')}`, null, true);
+  } catch (err) {
+    geoMsg.textContent = err instanceof SyntaxError ? `${file.name} is not valid JSON.` : err.message;
+  }
+}
+document.getElementById('geo-file').addEventListener('change', (e) => { loadBoundaryFile(e.target.files[0]); e.target.value = ''; });
+const mapEl = document.getElementById('map');
+mapEl.addEventListener('dragover', (e) => { e.preventDefault(); mapEl.classList.add('drop'); });
+mapEl.addEventListener('dragleave', () => mapEl.classList.remove('drop'));
+mapEl.addEventListener('drop', (e) => {
+  e.preventDefault();
+  mapEl.classList.remove('drop');
+  loadBoundaryFile(e.dataTransfer.files[0]);
+});
 
 async function setArea(area, label, focusYm, fit, presetId = null) {
   state.area = area;
@@ -314,6 +404,7 @@ async function setArea(area, label, focusYm, fit, presetId = null) {
   state.selected = clampSel(focusYm ?? Math.min(lastComplete, state.to));
   info.innerHTML = `<b>${label}</b><br>${d3.format(',.0f')(areaKm2(area))} km² · ${agg.cells.toLocaleString()} active 0.1° cells`;
   updateHash();
+  state.live = null; // don't show the previous area's live data while the new one loads
   document.getElementById('results').hidden = false; // unhide first so charts measure their real width
   render();
   loadLive();
@@ -469,6 +560,7 @@ function render() {
   const yrs = completeYears(agg, series, from, to);
   const tr = trend(yrs);
   renderStats(tr, yrs);
+  renderStatus();
   renderLive();
   renderOutlook();
   drawCalendar(document.getElementById('calendar'), document.getElementById('cal-legend'), agg, { series, mode, selected, onSelect: select, from, to });

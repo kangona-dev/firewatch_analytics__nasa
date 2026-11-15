@@ -190,7 +190,8 @@ export function renderAbout(el) {
   <p>Emergency and early-warning teams, land and park managers, firefighters and researchers who need to know whether a place is in its usual fire season or something unusual is happening.</p>
   <h2>How to use it</h2>
   <ol>
-    <li><b>Choose an area.</b> Pick a preset, draw a rectangle, polygon or circle on the map, or type a point with a radius or a bounding box.</li>
+    <li><b>Choose an area.</b> Pick a preset, draw a rectangle, polygon or circle on the map, type a point with a radius or a bounding box, or <b>upload your own boundary</b> (a park, property or district as GeoJSON; you can also drop the file on the map).</li>
+    <li><b>Read the status line first.</b> It says whether fire activity right now is below normal, normal, elevated or very high for this time of year, and where you are relative to the area's critical fire period.</li>
     <li><b>Choose a date range</b> (or a quick range such as the last 10 years). Totals, records, the trend, the calendar and the downloads all follow it.</li>
     <li><b>Read the calendar.</b> Each row is a year and each column is a month, and brighter means more fire. Switch to <i>Anomaly</i> to see which months were unusual for that time of year, or switch to a single raw sensor to see the problem harmonisation solves.</li>
     <li><b>Check the season outlook.</b> For the current month and the next three, it shows what is typical, how often that month has been severe, and how the current month is tracking. It is based only on the historical record, not on a weather forecast.</li>
@@ -205,6 +206,8 @@ export function renderAbout(el) {
     <li><b>Typical</b> is the median of that calendar month across all years on record.</li>
     <li><b>Trend</b> is the Theil–Sen slope of annual totals (as % of the median year per year), tested with the Mann–Kendall test. It is only shown with 8 or more complete years.</li>
     <li><b>Severe month</b> means above this area's 90th-percentile month.</li>
+    <li><b>Status</b> compares the last 7 days (NOAA-20, calibrated to S-NPP units) with a typical share of the current month: <i>Below normal</i> &lt; 0.67×, <i>Normal</i> 0.67–1.5×, <i>Elevated</i> 1.5–2×, <i>Very high</i> ≥ 2×. <i>Quiet</i> means almost no fire now and almost none is typical.</li>
+    <li><b>Critical period</b> is the shortest run of consecutive months that holds at least 70% of all fire on record for the area. If that takes 8 months or more, fire is spread through the year and no single period is named.</li>
   </ul>
   <h2>Challenge</h2>
   <p>NASA Space Apps Challenge 2026: <i>Harmonization of MODIS and VIIRS Hot Spots</i>.</p>

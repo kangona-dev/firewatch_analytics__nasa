@@ -26,6 +26,11 @@
         <h2>1 · Choose an area</h2>
         <p class="hint">Draw a rectangle, polygon or circle on the map, pick a preset, or type coordinates.</p>
         <div class="presets" id="presets"></div>
+        <label class="upload-btn" for="geo-file" title="A park, property or district boundary as GeoJSON (WGS84). You can also drop the file on the map.">
+          ⬆ Upload a boundary (GeoJSON)
+          <input type="file" id="geo-file" accept=".geojson,.json,application/geo+json" hidden>
+        </label>
+        <p class="hint geo-msg" id="geo-msg">Got a shapefile or KML? Convert it at mapshaper.org (export as GeoJSON).</p>
         <div class="seg small" id="input-seg" role="group" aria-label="Coordinate input">
           <button data-v="point" class="on" type="button">Point + radius</button>
           <button data-v="box" type="button">Bounding box</button>
@@ -78,6 +83,8 @@
           </div>
         </div>
       </div>
+
+      <div class="status" id="status" role="status" aria-live="polite"></div>
 
       <div class="range-bar" id="range-bar">
         <span class="range-label">Date range</span>
