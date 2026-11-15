@@ -85,6 +85,8 @@ export async function renderMethod(el) {
     <li>Overpass times differ (MODIS ~10:30/13:30, VIIRS ~13:30). Fires that burn mostly at night or in the morning are under-sampled differently by each sensor. The regional factors absorb the average effect, not the variation from one month to the next.</li>
     <li>Near-real-time data (Aug 2026 onward) has no <code>type</code> flag, so a few industrial or other static hot sources may be included. It will be replaced by archive data as FIRMS reprocesses it.</li>
     <li>Nov 2000 – Jun 2002 rests on MODIS Terra alone (Aqua launched later), so those months are less certain than the rest of the record.</li>
+    <li>VIIRS NOAA-21 (in orbit since 2024) is not yet part of the historical record; the harmonised series uses S-NPP with NOAA-20 as gap-fill. Adding NOAA-21 is planned.</li>
+    <li>Calibration factors are estimated from day and night detections together. Fitting them separately for day and night, as overpass times differ, is future work.</li>
     <li>Firewatch Analytics is decision support for planning and research. It is not a safety-of-life warning system; follow official fire services for live alerts.</li>
     <li>The latest month is partial. FIRMS data in this build runs to the date shown on the Explore page.</li>
   </ul>`;
@@ -255,6 +257,7 @@ function drawSeam(el, sm) {
     `We compared national annual totals for five years before (${r.before}) and after (${r.after}) the switch, skipping 2012 itself. ` +
     `The naive join jumps <b>×${r.step_factor} (${pTxt(r.p)})</b>, an artefact of the sensor change. After harmonisation the step is <b>×${h.step_factor} (${pTxt(h.p)})</b>: no detectable break. ` +
     `Placebo tests at dates with no sensor change, ${pl}, also show no break, so the test isn't just picking up normal fire-year swings. ` +
+    `From 2012 onward both lines use the same VIIRS S-NPP data, so they overlap exactly. ` +
     `<span class="muted">Welch t-test on log totals; with five years each side this detects large breaks, not small ones.</span>`;
 }
 

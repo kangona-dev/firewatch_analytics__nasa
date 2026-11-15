@@ -256,3 +256,6 @@ tr.best td { font-weight: 700; background: color-mix(in srgb, var(--accent) 10%,
 #trust-map .leaflet-tile-pane { filter: grayscale(1) opacity(0.55); }
 #trust-legend div { font-size: 12px; line-height: 1.7; }
 @media (max-width: 600px) { #trust-map { height: 340px; } }
+
+/* plain-English summary under the stat cards */
+.summary { font-size: 0.95rem; line-height: 1.55; margin: -4px 0 14px; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--panel, transparent); border-radius: 6px; }

@@ -20,10 +20,10 @@ export const loadFactors = () => fetch(`${BASE}factors.json`).then((r) => r.json
 export const loadTrust = () => fetch(`${BASE}trust.json`).then((r) => r.json());
 export const loadSeam = () => fetch(`${BASE}seam.json`).then((r) => r.json());
 export const TRUST = {
-  good: { color: '#2f9e44', label: 'Good: under 20% typical error' },
-  caution: { color: '#f59f00', label: 'Caution: 20–40% error' },
-  low: { color: '#e03131', label: 'Low: over 40% error' },
-  sparse: { color: '#868e96', label: 'Too few fires to judge' },
+  good: { color: '#0072B2', label: 'Good: under 20% typical error' },
+  caution: { color: '#E69F00', label: 'Caution: 20–40% error' },
+  low: { color: '#CC79A7', label: 'Low: over 40% error' },
+  sparse: { color: '#9a9a9a', label: 'Too few fires to judge' },
 };
 
 function loadTile(ty, tx) {
