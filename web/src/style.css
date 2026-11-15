@@ -250,3 +250,24 @@ tr.best td { font-weight: 700; background: color-mix(in srgb, var(--accent) 10%,
 .factor-tt { font-size: 0.8rem; line-height: 1.4; }
 @media (max-width: 600px) { #factor-map { height: 340px; } }
 #factor-map .leaflet-tile-pane { filter: grayscale(1) opacity(0.55); }
+
+/* ---- live last-7-days card ---- */
+.live-card { margin-bottom: 14px; }
+.live-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.live-num { font-size: 1.02rem; }
+.live-num b { font-size: 1.3rem; }
+.live-dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e03131; margin-right: 8px;
+  box-shadow: 0 0 0 0 rgb(224 49 49 / 0.6); animation: pulse 1.8s infinite;
+}
+@keyframes pulse { 70% { box-shadow: 0 0 0 8px rgb(224 49 49 / 0); } 100% { box-shadow: 0 0 0 0 rgb(224 49 49 / 0); } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.live-toggle { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.live-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; align-items: start; }
+.live-facts { font-size: 0.86rem; }
+.live-facts .ol-row b { font-weight: 600; }
+.live-note { margin-top: 8px; font-size: 0.78rem; }
+.live-keys { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.ldot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1px solid #2b1d14; margin-right: 3px; vertical-align: -1px; }
+#live-legend:not(:empty) { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); display: grid; gap: 3px; }
+@media (max-width: 900px) { .live-grid { grid-template-columns: 1fr; } }

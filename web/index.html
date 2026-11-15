@@ -73,6 +73,7 @@
             <div class="dl-menu" id="csv-menu" hidden>
               <button data-csv="monthly">Monthly series for this area</button>
               <button data-csv="cells">Per-cell totals (0.1° grid)</button>
+              <button data-csv="live">Live hotspots, last 7 days (each detection)</button>
             </div>
           </div>
         </div>
@@ -92,6 +93,11 @@
       </div>
 
       <div class="stats" id="stats"></div>
+
+      <div class="card live-card">
+        <h3>Live: last 7 days <span class="hint">· NASA FIRMS near-real-time · independent of the date range above</span></h3>
+        <div id="live"><span class="spinner"></span> Loading live detections…</div>
+      </div>
 
       <div class="card outlook-card">
         <h3>Season outlook <span class="hint">· what history says about the coming months — based on the record, not a weather forecast</span></h3>

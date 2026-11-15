@@ -30,8 +30,16 @@ npm run build                           # → web/dist (static)
 ## Deploy (Vercel)
 Import the repo in Vercel, set **Root Directory = `web`** (Vite is auto-detected; build `npm run build`, output `dist`).
 
-## Secrets
-`FIRMS_MAP_KEY` lives in `.env` (gitignored). See `.env.example`. The static site does not use it.
+## Live layer & secrets
+`web/api/recent.js` is a Vercel serverless function (`GET /api/recent?bbox=w,s,e,n`) that proxies the
+NASA FIRMS area API for the last 7 days of near-real-time detections (VIIRS NOAA-20, NOAA-21, MODIS).
+It needs `FIRMS_MAP_KEY`:
+- **On Vercel:** Project → Settings → Environment Variables → `FIRMS_MAP_KEY`.
+- **Locally:** put it in the repo-root `.env` (gitignored, see `.env.example`). `npm run dev` / `npm run preview`
+  serve `/api/recent` through a small Vite plugin (`web/vite.config.js`).
+
+The key is only used server-side. It is never sent to the browser or included in the built JS.
+Responses are cached on Vercel's CDN for 15 minutes.
 
 ## Data & credits
 NASA FIRMS, https://firms.modaps.eosdis.nasa.gov/. Base map © OpenStreetMap contributors.

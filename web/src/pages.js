@@ -175,8 +175,9 @@ export function renderAbout(el) {
     <li><b>Choose a date range</b> (or a quick range such as the last 10 years). Totals, records, the trend, the calendar and the downloads all follow it.</li>
     <li><b>Read the calendar.</b> Each row is a year and each column is a month, and brighter means more fire. Switch to <i>Anomaly</i> to see which months were unusual for that time of year, or switch to a single raw sensor to see the problem harmonisation solves.</li>
     <li><b>Check the season outlook.</b> For the current month and the next three, it shows what is typical, how often that month has been severe, and how the current month is tracking. It is based only on the historical record, not on a weather forecast.</li>
+    <li><b>See what's burning now.</b> The <i>Live: last 7 days</i> panel and the map dots show this week's NASA FIRMS near-real-time detections (NOAA-20, NOAA-21 and MODIS) for your area, coloured by age. Click a dot for its time, satellite and intensity.</li>
     <li><b>Click any month</b> to compare it with the same month in every other year.</li>
-    <li><b>Download</b> the monthly series or per-cell totals as CSV, and any chart as a PNG.</li>
+    <li><b>Download</b> the monthly series, per-cell totals or this week's individual hotspots as CSV, and any chart as a PNG.</li>
     <li><b>Share the URL.</b> It keeps your area and date range.</li>
   </ol>
   <h2>What the numbers mean</h2>

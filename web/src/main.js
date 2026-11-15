@@ -7,6 +7,7 @@ import { aggregate, loadIndex, loadOverview, toCSV, cellsCSV, ymLabel, ymYear, y
 import { drawCalendar, drawAnomaly, drawSeason, drawAnnual, monthlyMedians, valueAt, fmtN } from './charts.js';
 import { completeYears, trend, outlook, level } from './analytics.js';
 import { downloadPNG } from './export.js';
+import { fetchLive, renderLiveCard, liveCSV, ageBin, popupHtml, AGE_BINS } from './live.js';
 import { renderMethod, renderAbout } from './pages.js';
 
 window.L = L;
@@ -30,6 +31,7 @@ const SHAPE_STYLE = { color: '#e8590c', weight: 2, fillOpacity: 0.05 };
 const state = {
   area: null, label: '', presetId: null, agg: null, series: 'harm', mode: 'count', selected: null,
   from: null, to: null, pendingRange: null,
+  live: null, liveOn: true, liveToken: 0,
 };
 
 // ---------------------------------------------------------------- map
@@ -40,6 +42,69 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 const fireRamp = (t) => d3.interpolateInferno(0.12 + 0.83 * t);
+const layersCtl = L.control.layers(null, null, { collapsed: true, position: 'topright' }).addTo(map);
+
+// live fires layer (last 7 days, from /api/recent)
+map.createPane('livePane');
+map.getPane('livePane').style.zIndex = 450;
+// One canvas per map tile; scales to ~100k points (a Leaflet marker per point would not).
+const LiveDots = L.GridLayer.extend({
+  // Leaflet 1.9's GridLayer.redraw() uses the unrounded map zoom; with fractional zoom (zoomSnap 0.25)
+  // it builds tiles on a misaligned grid and most stay blank. _resetView() rounds the tile zoom correctly.
+  redraw() {
+    if (this._map) { this._removeAllTiles(); this._resetView(); }
+    return this;
+  },
+  createTile(coords) {
+    const tile = document.createElement('canvas');
+    const size = this.getTileSize();
+    tile.width = size.x; tile.height = size.y;
+    const pts = state.live?.pts;
+    if (!pts) return tile;
+    const ctx = tile.getContext('2d');
+    const nw = coords.scaleBy(size);
+    const r = coords.z >= 8 ? 5 : coords.z >= 6 ? 4 : 3;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(43,29,20,0.75)';
+    // oldest first so the newest detections draw on top
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = pts[i];
+      if (!p.good) continue;
+      const q = map.project([p.lat, p.lon], coords.z).subtract(nw);
+      if (q.x < -r || q.y < -r || q.x > size.x + r || q.y > size.y + r) continue;
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = ageBin(p.ageH).color;
+      ctx.fill();
+      ctx.stroke();
+    }
+    return tile;
+  },
+});
+const liveLayer = new LiveDots({ pane: 'livePane' }).addTo(map);
+let drawing = false;
+map.on('draw:drawstart', () => { drawing = true; });
+map.on('draw:drawstop', () => { setTimeout(() => { drawing = false; }, 0); });
+map.on('click', (e) => {
+  if (drawing || !state.liveOn || !state.live) return;
+  const c = map.latLngToContainerPoint(e.latlng);
+  let best = null, bestD = 64; // within 8 px
+  for (const p of state.live.pts) {
+    if (!p.good) continue;
+    const q = map.latLngToContainerPoint([p.lat, p.lon]);
+    const d = (q.x - c.x) ** 2 + (q.y - c.y) ** 2;
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  if (best) L.popup().setLatLng([best.lat, best.lon]).setContent(popupHtml(best)).openOn(map);
+});
+layersCtl.addOverlay(liveLayer, 'Live fires — last 7 days');
+map.on('overlayadd overlayremove', (e) => {
+  if (e.layer !== liveLayer) return;
+  state.liveOn = e.type === 'overlayadd';
+  const t = document.getElementById('live-map-toggle');
+  if (t) t.checked = state.liveOn;
+  updateLiveLegend();
+});
 
 loadOverview().then((ov) => {
   const res = ov.res;
@@ -68,10 +133,52 @@ loadOverview().then((ov) => {
   });
   const layer = new Overview({ pane: 'overlayPane', opacity: 0.85 });
   layer.addTo(map);
-  L.control.layers(null, { 'All-time fire density (harmonised)': layer }, { collapsed: true, position: 'topright' }).addTo(map);
+  layersCtl.addOverlay(layer, 'All-time fire density (harmonised)');
   document.getElementById('map-legend').innerHTML =
-    `<span>All-time detections per 0.25°</span><i style="background:linear-gradient(90deg,${d3.range(0, 1.01, 0.2).map(fireRamp).join(',')})"></i><span class="lg-ends"><b>1</b><b>${d3.format('.2s')(maxV)}</b></span>`;
+    `<span>All-time detections per 0.25°</span><i style="background:linear-gradient(90deg,${d3.range(0, 1.01, 0.2).map(fireRamp).join(',')})"></i><span class="lg-ends"><b>1</b><b>${d3.format('.2s')(maxV)}</b></span><div id="live-legend"></div>`;
+  updateLiveLegend();
 });
+
+function updateLiveLegend() {
+  const el = document.getElementById('live-legend');
+  if (!el) return;
+  el.innerHTML = state.liveOn && state.live
+    ? `<span>Live fires (last 7 days)</span><span class="live-keys">${AGE_BINS.map((b) => `<i class="ldot" style="background:${b.color}"></i>${b.label}`).join(' ')}</span>`
+    : '';
+}
+
+function drawLiveMarkers() {
+  liveLayer.redraw();
+  updateLiveLegend();
+}
+
+async function loadLive() {
+  const token = ++state.liveToken;
+  const el = document.getElementById('live');
+  el.innerHTML = '<span class="spinner"></span> Loading live detections from NASA FIRMS…';
+  state.live = null;
+  liveLayer.redraw();
+  try {
+    const live = await fetchLive(state.area);
+    if (token !== state.liveToken) return; // a newer area was selected meanwhile
+    state.live = live;
+    drawLiveMarkers();
+    renderLive();
+  } catch (err) {
+    if (token !== state.liveToken) return;
+    el.innerHTML = `<p class="hint">Live data is unavailable right now (${String(err.message).slice(0, 120)}). The historical calendar below is unaffected.</p>`;
+  }
+}
+
+function renderLive() {
+  if (!state.live || !state.agg) return;
+  const meds = monthlyMedians(state.agg, 'harm');
+  const monthIdx = new Date(`${state.live.to}T00:00:00Z`).getUTCMonth();
+  renderLiveCard(document.getElementById('live'), state.live, {
+    typicalMonth: meds[monthIdx].median, monthIdx, mapOn: state.liveOn,
+    onToggleMap: (on) => { if (on) liveLayer.addTo(map); else map.removeLayer(liveLayer); },
+  });
+}
 
 const drawn = new L.FeatureGroup().addTo(map);
 map.addControl(new L.Control.Draw({
@@ -201,6 +308,7 @@ async function setArea(area, label, focusYm, fit, presetId = null) {
   updateHash();
   document.getElementById('results').hidden = false; // unhide first so charts measure their real width
   render();
+  loadLive();
 }
 
 // ---------------------------------------------------------------- date range
@@ -311,7 +419,11 @@ csvMenu.addEventListener('click', (e) => {
   if (!kind) return;
   const { agg, from, to, label } = state;
   if (kind === 'monthly') saveText(toCSV(agg, label, from, to, monthlyMedians(agg, 'harm')), `firewatch_${slug()}_${rangeSlug()}_monthly.csv`);
-  else saveText(cellsCSV(agg, label, from, to), `firewatch_${slug()}_${rangeSlug()}_cells.csv`);
+  else if (kind === 'cells') saveText(cellsCSV(agg, label, from, to), `firewatch_${slug()}_${rangeSlug()}_cells.csv`);
+  else if (kind === 'live') {
+    if (!state.live) return alert('Live data has not loaded yet.');
+    saveText(liveCSV(state.live, label), `firewatch_${slug()}_live_${state.live.from}_${state.live.to}.csv`);
+  }
 });
 
 document.querySelectorAll('button.png').forEach((btn) => {
@@ -349,6 +461,7 @@ function render() {
   const yrs = completeYears(agg, series, from, to);
   const tr = trend(yrs);
   renderStats(tr, yrs);
+  renderLive();
   renderOutlook();
   drawCalendar(document.getElementById('calendar'), document.getElementById('cal-legend'), agg, { series, mode, selected, onSelect: select, from, to });
   drawAnomaly(document.getElementById('anomaly'), document.getElementById('anom-title'), agg, { series, selected });

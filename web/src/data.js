@@ -27,7 +27,7 @@ function loadTile(ty, tx) {
 }
 
 // Ray-casting point-in-polygon; poly = [[lat, lon], ...]
-function inPoly(lat, lon, poly) {
+export function inPoly(lat, lon, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [yi, xi] = poly[i], [yj, xj] = poly[j];
