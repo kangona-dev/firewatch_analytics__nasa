@@ -608,7 +608,7 @@ function renderStats(tr, yrs) {
   else {
     const sig = tr.p < 0.05;
     const dir = tr.slope > 0 ? 'rising' : 'falling';
-    trendTile = [`Trend ${tr.y0}–${tr.y1}`, `${tr.pctPerYear >= 0 ? '+' : ''}${tr.pctPerYear.toFixed(1)}%/yr`,
+    trendTile = [`Trend ${tr.y0}–${tr.y1}`, (() => { const v = Math.abs(tr.pctPerYear) < 0.05 ? 0 : tr.pctPerYear; return `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}%/yr`; })(),
       sig ? `${dir}, significant (p = ${tr.p.toFixed(3)})` : `no significant trend (p = ${tr.p.toFixed(2)})`];
   }
   const tiles = [
