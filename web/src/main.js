@@ -3,7 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import * as d3 from 'd3';
 import './style.css';
-import { aggregate, loadIndex, loadOverview, toCSV, cellsCSV, ymLabel, ymYear, ymMonth, MONTHS } from './data.js';
+import { aggregate, loadIndex, loadOverview, loadTrust, TRUST, toCSV, cellsCSV, ymLabel, ymYear, ymMonth, MONTHS } from './data.js';
 import { drawCalendar, drawAnomaly, drawSeason, drawAnnual, monthlyMedians, valueAt, fmtN } from './charts.js';
 import { completeYears, trend, outlook, level } from './analytics.js';
 import { downloadPNG } from './export.js';
@@ -134,6 +134,14 @@ loadOverview().then((ov) => {
   const layer = new Overview({ pane: 'overlayPane', opacity: 0.85 });
   layer.addTo(map);
   layersCtl.addOverlay(layer, 'All-time fire density (harmonised)');
+  loadTrust().then((t) => {
+    trustByTile = Object.fromEntries(t.tiles.map((c) => [c.tile, c]));
+    render();
+    const trustLayer = L.layerGroup(t.tiles.map((c) => L.rectangle([[c.lat0, c.lon0], [c.lat0 + 1, c.lon0 + 1]], {
+      stroke: false, fillColor: TRUST[c.class].color, fillOpacity: 0.55,
+    }).bindTooltip(`${TRUST[c.class].label}<br>Typical error ${Math.round(c.err * 100)}%`, { sticky: true })));
+    layersCtl.addOverlay(trustLayer, 'Harmonisation trust (1° tiles)');
+  });
   document.getElementById('map-legend').innerHTML =
     `<span>All-time detections per 0.25°</span><i style="background:linear-gradient(90deg,${d3.range(0, 1.01, 0.2).map(fireRamp).join(',')})"></i><span class="lg-ends"><b>1</b><b>${d3.format('.2s')(maxV)}</b></span><div id="live-legend"></div>`;
   updateLiveLegend();
@@ -469,6 +477,23 @@ function render() {
   drawAnnual(document.getElementById('annual'), agg, { series, selected, onSelect: select, from, to, trend: tr });
 }
 
+let trustByTile = null;
+const SNPP_START_YM = 12 * 12 + 1; // Feb 2012: before this the harmonised series is MODIS × k
+
+/** 90% range for a MODIS-era harmonised month: each cell's value × its 1° tile's out-of-sample lo/hi multipliers (trust.json). */
+function bandFor(ym) {
+  const { agg, series } = state;
+  if (series !== 'harm' || ym >= SNPP_START_YM || !trustByTile) return null;
+  let lo = 0, hi = 0, tot = 0;
+  for (const c of agg.cellList) {
+    const i = c.yms.indexOf(ym);
+    if (i < 0) continue;
+    const v = c.h[i], t = trustByTile[`${Math.floor(c.cy / 10)}_${Math.floor(c.cx / 10)}`];
+    tot += v; lo += v * (t ? t.lo : 1); hi += v * (t ? t.hi : 1);
+  }
+  return tot > 0 ? { lo, hi } : null;
+}
+
 const ratioText = (r) => (r >= 1 ? `${r.toFixed(1)}×` : `${Math.round(r * 100)}%`);
 
 function renderStats(tr, yrs) {
@@ -485,6 +510,7 @@ function renderStats(tr, yrs) {
   const peak = d3.maxIndex(meds, (d) => d.median);
   const vSel = valueAt(agg, series, selected - agg.ym0) ?? 0;
   const ratio = (vSel + 1) / (meds[ymMonth(selected)].median + 1);
+  const band = bandFor(selected);
   let trendTile;
   if (!tr) trendTile = ['Trend', '—', 'needs 8+ complete years in range'];
   else {
@@ -494,15 +520,27 @@ function renderStats(tr, yrs) {
       sig ? `${dir}, significant (p = ${tr.p.toFixed(3)})` : `no significant trend (p = ${tr.p.toFixed(2)})`];
   }
   const tiles = [
-    ['Total detections', fmtN(total), rangeText()],
-    ['Typical peak month', MONTHS[peak], `median ${fmtN(meds[peak].median)} detections`],
+    ['Total detections (hot pixels)', fmtN(total), rangeText()],
+    ['Typical peak month', MONTHS[peak], `median ${fmtN(meds[peak].median)} · includes planned burns &amp; crop fires`],
     ['Record year', recY ? recY.y : '—', recY ? `${fmtN(recY.t)} detections (complete years)` : 'no complete year in range'],
     ['Record month', recM.ym != null ? ymLabel(recM.ym) : '—', `${fmtN(recM.v)} detections`],
-    [ymLabel(selected), fmtN(vSel), `${ratioText(ratio)} of typical ${MONTHS[ymMonth(selected)]}`],
+    [ymLabel(selected), fmtN(vSel), `${ratioText(ratio)} of typical ${MONTHS[ymMonth(selected)]}${band ? ` · 90% range ${fmtN(band.lo)}–${fmtN(band.hi)}` : ''}`],
     trendTile,
   ];
   document.getElementById('stats').innerHTML = tiles
     .map(([k, v, s], i) => `<div class="stat${i === 4 ? ' hl' : ''}"${i === 5 ? ' title="Theil–Sen slope of annual totals, relative to the median year; significance from the Mann–Kendall test"' : ''}><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+
+  // plain-English summary
+  const mSel = MONTHS[ymMonth(selected)];
+  const recRatio = recM.ym != null ? (recM.v + 1) / (meds[ymMonth(recM.ym)].median + 1) : null;
+  const parts = [`Fire activity in <b>${state.label}</b> usually peaks in <b>${MONTHS[peak]}</b>.`];
+  if (recY) parts.push(`The most active complete year in this range was <b>${recY.y}</b> (${fmtN(recY.t)} detections).`);
+  if (recRatio) parts.push(`The single biggest month was <b>${ymLabel(recM.ym)}</b>, ${ratioText(recRatio)} a typical ${MONTHS[ymMonth(recM.ym)]}.`);
+  parts.push(`<b>${ymLabel(selected)}</b> had ${fmtN(vSel)} detections, ${ratioText(ratio)} of a typical ${mSel}${band ? ` (90% range ${fmtN(band.lo)}–${fmtN(band.hi)}, as it predates VIIRS)` : ''}.`);
+  if (tr) parts.push(tr.p < 0.05
+    ? `Since ${tr.y0}, activity has been <b>${tr.slope > 0 ? 'rising' : 'falling'}</b> by about ${Math.abs(tr.pctPerYear).toFixed(1)}% a year (significant).`
+    : `There is no significant long-term trend since ${tr.y0}.`);
+  document.getElementById('summary').innerHTML = parts.join(' ');
 }
 
 const LEVEL_TEXT = { high: 'Often severe', moderate: 'Sometimes severe', low: 'Rarely severe' };

@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import L from 'leaflet';
-import { loadValidation, loadFactors } from './data.js';
+import { loadValidation, loadFactors, loadTrust, loadSeam, TRUST } from './data.js';
 import { showTip, hideTip, fmtN } from './charts.js';
 
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -40,6 +40,19 @@ export async function renderMethod(el) {
     <p class="hint" id="factor-summary"></p>
   </div>
 
+  <div class="card">
+    <h3>Does harmonisation remove the 2012 sensor break?</h3>
+    <div id="seam-chart"></div>
+    <p class="hint" id="seam-summary"></p>
+  </div>
+
+  <div class="card factor-card">
+    <h3>Where can you trust the harmonised record?</h3>
+    <p class="hint">Each 1° tile was tested by hiding one year at a time (2013–2025), predicting it from MODIS alone, and comparing with what VIIRS actually saw. Colour = typical error of a harmonised year in that tile. Hover over a square for its 90% range.</p>
+    <div class="factor-wrap"><div id="trust-map"></div><div id="trust-legend" class="factor-legend"></div></div>
+    <p class="hint" id="trust-summary"></p>
+  </div>
+
   <h2>Pipeline</h2>
   <ol>
     <li><b>Data.</b> NASA FIRMS archive + near-real-time hotspots for Australia: MODIS Collection 6.1 (Terra + Aqua, Nov 2000 →), VIIRS S-NPP 375 m (Jan 2012 → 2 Nov 2026), VIIRS NOAA-20 375 m (Apr 2018 →). In total, 34.7 million detections.</li>
@@ -71,11 +84,17 @@ export async function renderMethod(el) {
     <li>Detection counts are a proxy for fire activity, not burned area. One large fire can produce many detections, and cloud or smoke can hide fires from both sensors.</li>
     <li>Overpass times differ (MODIS ~10:30/13:30, VIIRS ~13:30). Fires that burn mostly at night or in the morning are under-sampled differently by each sensor. The regional factors absorb the average effect, not the variation from one month to the next.</li>
     <li>Near-real-time data (Aug 2026 onward) has no <code>type</code> flag, so a few industrial or other static hot sources may be included. It will be replaced by archive data as FIRMS reprocesses it.</li>
+    <li>Nov 2000 – Jun 2002 rests on MODIS Terra alone (Aqua launched later), so those months are less certain than the rest of the record.</li>
+    <li>VIIRS NOAA-21 (in orbit since 2024) is not yet part of the historical record; the harmonised series uses S-NPP with NOAA-20 as gap-fill. Adding NOAA-21 is planned.</li>
+    <li>Calibration factors are estimated from day and night detections together. Fitting them separately for day and night, as overpass times differ, is future work.</li>
+    <li>Firewatch Analytics is decision support for planning and research. It is not a safety-of-life warning system; follow official fire services for live alerts.</li>
     <li>The latest month is partial. FIRMS data in this build runs to the date shown on the Explore page.</li>
   </ul>`;
 
   drawSensorChart(document.getElementById('m-chart'), v.national_monthly);
   drawFactorMap(await loadFactors());
+  drawSeam(document.getElementById('seam-chart'), await loadSeam());
+  drawTrustMap(await loadTrust());
 }
 
 function drawFactorMap(fx) {
@@ -201,4 +220,69 @@ export function renderAbout(el) {
   <p>This project was built with assistance from Claude Code (Anthropic), which was used for code generation, data-pipeline design and documentation. The team reviewed, tested and directed all of the work.</p>
   <h2>Licence</h2>
   <p>Code: MIT licence, © 2026 Divyanshu Mishra and Kangona Sinha. FIRMS data is distributed by NASA under its open data policy.</p>`;
+}
+
+function drawSeam(el, sm) {
+  const data = sm.annual;
+  const W = el.clientWidth || 800, H = 280, mg = { t: 30, r: 16, b: 26, l: 56 };
+  const svg = d3.select(el).append('svg').attr('width', W).attr('height', H);
+  const x = d3.scaleLinear().domain([2001, 2025]).range([mg.l, W - mg.r]);
+  const y = d3.scaleLinear().domain([0, d3.max(data, (d) => Math.max(d.raw, d.harmonised))]).nice().range([H - mg.b, mg.t]);
+  svg.append('rect').attr('x', x(2011.5)).attr('width', x(2012.5) - x(2011.5)).attr('y', mg.t).attr('height', H - mg.t - mg.b)
+    .attr('fill', css('--bar-muted')).attr('opacity', 0.25);
+  svg.append('text').attr('x', x(2012.5) + 6).attr('y', mg.t + 12).attr('class', 'axis-l').text('Feb 2012: MODIS → VIIRS switch');
+  svg.append('g').attr('transform', `translate(0,${H - mg.b})`).attr('class', 'axis').call(d3.axisBottom(x).tickFormat(d3.format('d')).ticks(12));
+  svg.append('g').attr('transform', `translate(${mg.l},0)`).attr('class', 'axis').call(d3.axisLeft(y).ticks(5, '~s'));
+  const series = [
+    { k: 'raw', name: 'Naive join (raw MODIS, then raw VIIRS)', color: css('--bar-muted'), dash: '5 4' },
+    { k: 'harmonised', name: 'Harmonised (ours)', color: css('--accent') },
+  ];
+  for (const s of series) {
+    svg.append('path').datum(data).attr('fill', 'none').attr('stroke', s.color).attr('stroke-width', 2.2).attr('stroke-dasharray', s.dash ?? null)
+      .attr('d', d3.line().x((d) => x(d.year)).y((d) => y(d[s.k])));
+    svg.append('g').selectAll('circle').data(data).join('circle').attr('cx', (d) => x(d.year)).attr('cy', (d) => y(d[s.k])).attr('r', 3).attr('fill', s.color)
+      .on('mousemove', (evt, d) => showTip(evt, `<b>${d.year}</b><br>Naive join: ${fmtN(d.raw)}<br>Harmonised: ${fmtN(d.harmonised)}`))
+      .on('mouseleave', hideTip);
+  }
+  const lg = svg.append('g').attr('transform', `translate(${mg.l},12)`).attr('class', 'axis-l');
+  let off = 0;
+  for (const s of series) {
+    lg.append('line').attr('x1', off).attr('x2', off + 18).attr('stroke', s.color).attr('stroke-width', 2.2).attr('stroke-dasharray', s.dash ?? null);
+    lg.append('text').attr('x', off + 22).attr('y', 4).text(s.name);
+    off += 30 + s.name.length * 6.2;
+  }
+  const r = sm.seam_2012.raw, h = sm.seam_2012.harmonised;
+  const pTxt = (p) => (p < 0.001 ? 'p < 0.001' : `p = ${p.toFixed(p < 0.01 ? 3 : 2)}`);
+  const pl = Object.entries(sm.placebo).map(([k, v]) => `${k.split(' ')[0]} (×${v.step_factor}, ${pTxt(v.p)})`).join(' and ');
+  document.getElementById('seam-summary').innerHTML =
+    `We compared national annual totals for five years before (${r.before}) and after (${r.after}) the switch, skipping 2012 itself. ` +
+    `The naive join jumps <b>×${r.step_factor} (${pTxt(r.p)})</b>, an artefact of the sensor change. After harmonisation the step is <b>×${h.step_factor} (${pTxt(h.p)})</b>: no detectable break. ` +
+    `Placebo tests at dates with no sensor change, ${pl}, also show no break, so the test isn't just picking up normal fire-year swings. ` +
+    `From 2012 onward both lines use the same VIIRS S-NPP data, so they overlap exactly. ` +
+    `<span class="muted">Welch t-test on log totals; with five years each side this detects large breaks, not small ones.</span>`;
+}
+
+function drawTrustMap(t) {
+  const map = L.map('trust-map', { zoomSnap: 0.25, scrollWheelZoom: false, minZoom: 3, maxBounds: [[-50, 100], [0, 170]] })
+    .fitBounds([[-44, 112], [-10, 154]]);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 10, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(map);
+  const renderer = L.canvas({ padding: 0.2 });
+  for (const c of t.tiles) {
+    const tr = TRUST[c.class];
+    L.rectangle([[c.lat0, c.lon0], [c.lat0 + 1, c.lon0 + 1]], { renderer, stroke: false, fillColor: tr.color, fillOpacity: 0.65 })
+      .bindTooltip(
+        `<b>${Math.abs(c.lat0 + 1)}–${Math.abs(c.lat0)}°S, ${c.lon0}–${c.lon0 + 1}°E</b><br>${tr.label}<br>` +
+        `Typical error: <b>${Math.round(c.err * 100)}%</b> (${c.years} test years)<br>` +
+        `90% range for a pre-2012 value: ×${c.lo.toFixed(2)} to ×${c.hi.toFixed(2)}`,
+        { sticky: true, className: 'factor-tt' },
+      ).addTo(map);
+  }
+  document.getElementById('trust-legend').innerHTML = Object.values(TRUST)
+    .map((v) => `<div><i style="display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px;background:${v.color}"></i>${v.label}</div>`).join('');
+  const n = t.tiles.length, s = t.summary, pct = (k) => Math.round(((s[k] ?? 0) / n) * 100);
+  document.getElementById('trust-summary').innerHTML =
+    `${n} tiles: <b>${pct('good')}%</b> good, ${pct('caution')}% caution, ${pct('low')}% low, ${pct('sparse')}% too sparse to judge. ` +
+    `Uncertainty is largest where fires are rare or patchy; the long-term calendar is most reliable in the fire-prone north and east.`;
 }

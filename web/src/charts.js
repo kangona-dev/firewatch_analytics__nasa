@@ -43,6 +43,8 @@ export function monthlyMedians(agg, series) {
 
 const anomScore = (v, med) => Math.log2((v + 1) / (med + 1));
 
+const TERRA_ONLY_LAST = 2 * 12 + 5; // Jun 2002: MODIS Aqua active-fire data starts 4 Jul 2002
+
 export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSelect, from = agg.ym0, to = agg.ym1 }) {
   el.innerHTML = '';
   const y0 = ymYear(from), y1 = ymYear(to);
@@ -69,6 +71,10 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
 
   const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${width} ${height}`).attr('width', width).attr('height', height)
     .attr('role', 'img').attr('aria-label', 'Calendar heatmap of monthly fire detections, years by months');
+  const hatch = svg.append('defs').append('pattern').attr('id', 'terra-hatch').attr('width', 5).attr('height', 5)
+    .attr('patternUnits', 'userSpaceOnUse').attr('patternTransform', 'rotate(45)');
+  hatch.append('line').attr('x1', 0).attr('y1', 0).attr('x2', 0).attr('y2', 5).attr('stroke', 'rgba(255,255,255,0.45)').attr('stroke-width', 1.4);
+  const terraOnly = (ym) => ym <= TERRA_ONLY_LAST && (series === 'harm' || series === 'modis');
 
   svg.append('g').selectAll('text').data(MONTHS).join('text')
     .attr('x', (_, i) => left + i * cw + cw / 2).attr('y', top - 7).attr('text-anchor', 'middle').attr('class', 'axis-l').text((m) => (cw < 30 ? m[0] : m));
@@ -108,6 +114,7 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
         `<span class="tt-big">${fmtN(d.v)}</span> detections`,
         `Typical ${MONTHS[d.m]}: ${fmtN(med)} &nbsp;·&nbsp; <b>${ratio >= 1 ? ratio.toFixed(1) + '×' : Math.round(ratio * 100) + '%'}</b> of typical`,
       ];
+      if (terraOnly(d.ym)) rows.push('<span class="muted">MODIS Terra only (before Aqua): lower confidence</span>');
       if (series === 'harm') {
         rows.push(`<span class="muted">Source: ${SRC_NAMES[agg.src[d.k]]}</span>`);
         rows.push(`<span class="muted">Raw — MODIS ${fmtN(agg.modis[d.k])}${available('snpp', d.ym) ? ` · S-NPP ${fmtN(agg.snpp[d.k])}` : ''}${available('n20', d.ym) ? ` · NOAA-20 ${fmtN(agg.n20[d.k])}` : ''}</span>`);
@@ -116,6 +123,11 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
     })
     .on('mouseleave', hideTip)
     .on('click', (_, d) => d.v != null && onSelect(d.ym));
+
+  // hatch over Terra-only months (before Aqua joined in Jul 2002): lower confidence
+  svg.append('g').attr('pointer-events', 'none').selectAll('rect').data(cells.filter((d) => d.v != null && terraOnly(d.ym))).join('rect')
+    .attr('x', (d) => left + d.m * cw + 1).attr('y', (d) => top + (d.y - y0) * ch + 1)
+    .attr('width', cw - 2).attr('height', ch - 2).attr('rx', 2).attr('fill', 'url(#terra-hatch)');
 
   // year totals
   const totals = years.map((y) => {
@@ -137,10 +149,10 @@ export function drawCalendar(el, legendEl, agg, { series, mode, selected, onSele
     .on('mousemove', (evt, t) => t != null && showTip(evt, `<b>${years[totals.indexOf(t)]}</b><br>${fmtN(t)} detections in range`))
     .on('mouseleave', hideTip);
 
-  drawLegend(legendEl, mode, lo, max);
+  drawLegend(legendEl, mode, lo, max, series === 'harm' || series === 'modis');
 }
 
-function drawLegend(el, mode, lo, max) {
+function drawLegend(el, mode, lo, max, showTerra = false) {
   el.innerHTML = '';
   const w = 260, h = 10;
   const svg = d3.select(el).append('svg').attr('width', w + 80).attr('height', 34);
@@ -155,7 +167,7 @@ function drawLegend(el, mode, lo, max) {
   svg.selectAll('text').data(labels).join('text').attr('x', (d) => 10 + d[0] * w).attr('y', 28)
     .attr('text-anchor', (d) => (d[0] === 0 ? 'start' : d[0] === 1 ? 'end' : 'middle')).attr('class', 'axis-l').text((d) => d[1]);
   const extra = d3.select(el).append('span').attr('class', 'legend-keys');
-  extra.html(`<i class="sw" style="background:var(--cell-zero)"></i> no detections <i class="sw" style="background:var(--cell-na)"></i> no data${mode === 'count' ? ' &nbsp;· log scale' : ''}`);
+  extra.html(`<i class="sw" style="background:var(--cell-zero)"></i> no detections <i class="sw" style="background:var(--cell-na)"></i> no data${showTerra ? ' <i class="sw" style="background:repeating-linear-gradient(45deg,#8c2981 0 2.5px,rgba(255,255,255,0.55) 2.5px 3.5px)"></i> Terra only, lower confidence' : ''}${mode === 'count' ? ' &nbsp;· log scale' : ''}`);
 }
 
 /** Bar chart: the selected calendar month in every year, with the median line. */
