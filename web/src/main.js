@@ -215,7 +215,7 @@ function renderStatus() {
   if (state.live) {
     const c = liveComparison(state.live, meds[m].median, m);
     ratio = c.ratio; typical = c.typicalPeriod; now = c.n20eq;
-    basis = `the last ${c.nDays} days (live NASA FIRMS)`;
+    basis = `the last ${c.nDays} full days (live NASA FIRMS, today excluded as it is still incomplete)`;
   } else {
     const o = outlook(agg, 'harm');
     if (o.current) {
@@ -616,7 +616,7 @@ function renderStats(tr, yrs) {
     ['Typical peak month', MONTHS[peak], `median ${fmtN(meds[peak].median)} · includes planned burns &amp; crop fires`],
     ['Record year', recY ? recY.y : '—', recY ? `${fmtN(recY.t)} detections (complete years)` : 'no complete year in range'],
     ['Record month', recM.ym != null ? ymLabel(recM.ym) : '—', `${fmtN(recM.v)} detections`],
-    [ymLabel(selected), fmtN(vSel), `${ratioText(ratio)} of typical ${MONTHS[ymMonth(selected)]}${band ? ` · 90% range ${fmtN(band.lo)}–${fmtN(band.hi)}` : ''}`],
+    [ymLabel(selected), fmtN(vSel), `${ratioText(ratio)}${ratio >= 1 ? '' : ' of'} typical ${MONTHS[ymMonth(selected)]}${band ? ` · 90% range ${fmtN(band.lo)}–${fmtN(band.hi)}` : ''}`],
     trendTile,
   ];
   document.getElementById('stats').innerHTML = tiles
@@ -628,7 +628,7 @@ function renderStats(tr, yrs) {
   const parts = [`Fire activity in <b>${state.label}</b> usually peaks in <b>${MONTHS[peak]}</b>.`];
   if (recY) parts.push(`The most active complete year in this range was <b>${recY.y}</b> (${fmtN(recY.t)} detections).`);
   if (recRatio) parts.push(`The single biggest month was <b>${ymLabel(recM.ym)}</b>, ${ratioText(recRatio)} a typical ${MONTHS[ymMonth(recM.ym)]}.`);
-  parts.push(`<b>${ymLabel(selected)}</b> had ${fmtN(vSel)} detections, ${ratioText(ratio)} of a typical ${mSel}${band ? ` (90% range ${fmtN(band.lo)}–${fmtN(band.hi)}, as it predates VIIRS)` : ''}.`);
+  if (selected !== recM.ym) parts.push(`<b>${ymLabel(selected)}</b> had ${fmtN(vSel)} detections, ${ratioText(ratio)}${ratio >= 1 ? '' : ' of'} a typical ${mSel}${band ? ` (90% range ${fmtN(band.lo)}–${fmtN(band.hi)}, as it predates VIIRS)` : ''}.`);
   if (tr) parts.push(tr.p < 0.05
     ? `Since ${tr.y0}, activity has been <b>${tr.slope > 0 ? 'rising' : 'falling'}</b> by about ${Math.abs(tr.pctPerYear).toFixed(1)}% a year (significant).`
     : `There is no significant long-term trend since ${tr.y0}.`);
@@ -645,8 +645,8 @@ function renderOutlook() {
     const isNow = i === 0 && o.current;
     const head = isNow
       ? `<div class="ol-when">${ymLabel(mo.ym)} <span class="ol-tag">in progress</span></div>
-         <div class="ol-now">${fmtN(o.current.soFar)} so far <span class="muted">(1–${o.current.day} ${MONTHS[mo.m]})</span><br>
-         on pace for ~${fmtN(o.current.pace)} · <b>${ratioText((o.current.pace + 1) / (mo.median + 1))}</b> of typical</div>`
+         <div class="ol-now">${fmtN(o.current.soFar)} so far <span class="muted">(1–${o.current.day} ${MONTHS[mo.m]}, harmonised archive)</span><br>
+         on pace for ~${fmtN(o.current.pace)} · <b>${ratioText((o.current.pace + 1) / (mo.median + 1))}</b>${(o.current.pace + 1) / (mo.median + 1) >= 1 ? '' : ' of'} typical</div>`
       : `<div class="ol-when">${ymLabel(mo.ym)}</div>`;
     return `<div class="ol-card ol-${lv}">
       ${head}
@@ -662,7 +662,7 @@ function renderOutlook() {
   document.getElementById('outlook').innerHTML = `
     <div class="ol-grid">${cards}</div>
     <p class="ol-foot"><b>Recent conditions:</b> ${ymLabel(r.from)} – ${ymLabel(r.to)} had ${fmtN(r.v)} detections,
-      <b>${ratioText(r.ratio)}</b> of typical (${word}).
+      <b>${ratioText(r.ratio)}</b>${r.ratio >= 1 ? '' : ' of'} typical (${word}).
       <span class="muted">“Severe” = above this area's 90th-percentile month (${fmtN(o.high)} detections). Likelihood: often ≥ 40% of years, sometimes 15–40%, rarely &lt; 15%.</span></p>`;
 }
 
